@@ -12,6 +12,11 @@ const state = {
   documents: [],
   sources: [],
   appendices: [],
+  frameworkBoards: [],
+  frameworkBoard: null,
+  frameworkSelectedNode: null,
+  frameworkConnectFrom: null,
+  frameworkZoom: 1,
 };
 
 const viewTitles = {
@@ -19,6 +24,7 @@ const viewTitles = {
   projects: ["YOUR WORKSPACE", "My Research"],
   writing: ["WRITING LAB", "Writing Lab"],
   literature: ["RESEARCH INTELLIGENCE", "Literature Review"],
+  framework: ["THEORY & CONCEPTS", "Frameworkshop"],
   statistics: ["DETERMINISTIC ANALYSIS", "Statistical Lab"],
   builder: ["WRITE YOUR RESEARCH", "Manuscript Editor"],
   appendices: ["PROJECT MATERIALS", "Appendices"],
@@ -156,28 +162,40 @@ function renderProjectSelect() {
   ).join("");
 }
 
-function setProject(projectId) {
+function setProject(projectId, nextView = state.view) {
   state.project = state.projects.find((project) => project.id === projectId) || null;
   state.documents = [];
   state.sources = [];
   state.appendices = [];
+  state.frameworkBoards = [];
+  state.frameworkBoard = null;
+  state.frameworkSelectedNode = null;
+  state.frameworkConnectFrom = null;
   if (state.project) localStorage.setItem("research-os-project", state.project.id);
   renderProjectSelect();
-  renderView(state.view);
+  renderView(nextView);
 }
 
-async function loadProjectData() {
+async function loadProjectData(includeFrameworks = false) {
   if (!state.project) return;
   const projectId = state.project.id;
-  const [documents, sources, appendices] = await Promise.all([
+  const requests = [
     api(`/api/projects/${encodeURIComponent(projectId)}/documents`),
     api(`/api/projects/${encodeURIComponent(projectId)}/sources`),
     api(`/api/projects/${encodeURIComponent(projectId)}/appendices`),
-  ]);
+  ];
+  if (includeFrameworks) requests.push(api(`/api/projects/${encodeURIComponent(projectId)}/frameworks`));
+  const [documents, sources, appendices, frameworks] = await Promise.all(requests);
   if (state.project?.id !== projectId) return;
   state.documents = documents.documents;
   state.sources = sources.sources;
   state.appendices = appendices.appendices;
+  if (includeFrameworks) {
+    state.frameworkBoards = frameworks.boards;
+    if (state.frameworkBoard && !state.frameworkBoards.some((board) => board.id === state.frameworkBoard.id)) {
+      state.frameworkBoard = null;
+    }
+  }
 }
 
 function currentDocument() {
@@ -203,12 +221,15 @@ function updateHeader(view) {
 async function renderView(view) {
   const renderToken = ++state.renderToken;
   state.view = view;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  appShell.classList.toggle("document-mode", view === "builder" && Boolean(state.project));
+  appShell.classList.toggle("framework-mode", view === "framework" && Boolean(state.project));
   updateHeader(view);
   document.querySelector("#notice").hidden = true;
-  if (state.project && ["dashboard", "builder", "literature", "statistics", "appendices", "references"].includes(view)) {
+  if (state.project && ["dashboard", "builder", "literature", "framework", "statistics", "appendices", "references"].includes(view)) {
     viewRoot.innerHTML = '<div class="empty-state">Loading your project…</div>';
     try {
-      await loadProjectData();
+      await loadProjectData(view === "framework");
     } catch (error) {
       if (renderToken !== state.renderToken) return;
       viewRoot.innerHTML = `<div class="empty-state"><p>${escapeHtml(error.message)}</p><button class="button" id="retry-view">Retry</button></div>`;
@@ -227,6 +248,7 @@ async function renderView(view) {
     projects: renderProjects,
     writing: renderWriting,
     literature: renderLiterature,
+    framework: renderFramework,
     statistics: renderStatistics,
     builder: renderBuilder,
     appendices: renderAppendices,
@@ -278,6 +300,7 @@ function renderDashboard() {
     <div class="card-grid">
       ${toolCard("Writing Lab", "Review text, explore writing patterns, correct grammar, or summarize a draft.", "writing", "Open writing tools")}
       ${toolCard("Literature Review", "Search Crossref records and save source metadata to this project.", "literature", "Search scholarly literature")}
+      ${toolCard("Frameworkshop", "Build and edit a theory-grounded or conceptual framework on a whiteboard.", "framework", "Open Frameworkshop")}
       ${toolCard("Statistical Lab", "Run deterministic descriptive and inferential calculations with assumptions.", "statistics", "Open statistical tools")}
       ${toolCard("APA References", "Review a generated reference list and build in-text citations.", "references", "Manage references")}
     </div>`;
@@ -296,43 +319,78 @@ function editorContent(value) {
 }
 
 function editorToolbar() {
-  return `<div class="toolbar editor-toolbar">
-    <button class="button small" type="button" data-editor-command="undo" aria-label="Undo">↶ Undo</button>
-    <button class="button small" type="button" data-editor-command="redo" aria-label="Redo">↷ Redo</button>
-    <button class="button small" type="button" data-editor-command="bold" aria-label="Bold"><strong>B</strong></button>
-    <button class="button small" type="button" data-editor-command="italic" aria-label="Italic"><em>I</em></button>
-    <button class="button small" type="button" data-editor-command="underline" aria-label="Underline"><u>U</u></button>
-    <button class="button small" type="button" data-editor-command="insertUnorderedList" aria-label="Bulleted list">• List</button>
-    <button class="button small" type="button" data-editor-command="insertOrderedList" aria-label="Numbered list">1. List</button>
-    <button class="button small" type="button" data-editor-command="justifyLeft" aria-label="Align left">Align left</button>
-    <button class="button small" type="button" data-editor-command="justifyCenter" aria-label="Center align">Center</button>
-    <button class="button small" type="button" data-editor-command="justifyRight" aria-label="Align right">Align right</button>
-    <button class="button small" type="button" data-insert-link>Insert link</button>
-    <button class="button small" type="button" data-insert-table>Insert table</button>
-    <label class="button small image-insert-button">Insert image<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-insert-image hidden></label>
+  return `<div class="toolbar editor-toolbar" role="toolbar" aria-label="Document formatting">
+    <div class="docs-tool-group">
+      <button class="button small" type="button" data-editor-command="undo" aria-label="Undo" title="Undo">↶</button>
+      <button class="button small" type="button" data-editor-command="redo" aria-label="Redo" title="Redo">↷</button>
+    </div>
     <select aria-label="Text style" data-editor-block><option value="p">Paragraph</option><option value="h1">Heading 1</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option><option value="blockquote">Quote</option></select>
     <select aria-label="Font family" data-editor-font><option>Georgia</option><option>Arial</option><option>Times New Roman</option><option>Verdana</option></select>
     <select aria-label="Font size" data-editor-size><option value="3">Normal</option><option value="2">Small</option><option value="4">Large</option><option value="5">Extra large</option></select>
-    <label class="font-color">Text color<input type="color" value="#34242a" aria-label="Text color" data-editor-color></label>
+    <span class="docs-toolbar-divider" aria-hidden="true"></span>
+    <div class="docs-tool-group">
+      <button class="button small" type="button" data-editor-command="bold" aria-label="Bold" title="Bold"><strong>B</strong></button>
+      <button class="button small" type="button" data-editor-command="italic" aria-label="Italic" title="Italic"><em>I</em></button>
+      <button class="button small" type="button" data-editor-command="underline" aria-label="Underline" title="Underline"><u>U</u></button>
+      <label class="font-color" title="Text color"><span aria-hidden="true">A</span><input type="color" value="#34242a" aria-label="Text color" data-editor-color></label>
+    </div>
+    <span class="docs-toolbar-divider" aria-hidden="true"></span>
+    <div class="docs-tool-group">
+      <button class="button small" type="button" data-editor-command="insertUnorderedList" aria-label="Bulleted list" title="Bulleted list">•</button>
+      <button class="button small" type="button" data-editor-command="insertOrderedList" aria-label="Numbered list" title="Numbered list">1.</button>
+      <button class="button small" type="button" data-editor-command="justifyLeft" aria-label="Align left" title="Align left">☰</button>
+      <button class="button small" type="button" data-editor-command="justifyCenter" aria-label="Center align" title="Center align">≡</button>
+      <button class="button small" type="button" data-editor-command="justifyRight" aria-label="Align right" title="Align right">☷</button>
+    </div>
+    <span class="docs-toolbar-divider" aria-hidden="true"></span>
+    <div class="docs-tool-group">
+      <button class="button small" type="button" data-insert-link title="Insert link">Link</button>
+      <button class="button small" type="button" data-insert-table title="Insert table">Table</button>
+      <label class="button small image-insert-button">Image<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-insert-image hidden></label>
+    </div>
   </div>`;
 }
 
 function renderManuscriptEditor(title, includeExports = true) {
   if (!currentDocument()) return '<div class="empty-state">This project does not have a document yet.</div>';
   const sections = documentSections();
+  const wordCount = sections
+    .map((section) => cleanEditorText(section.content))
+    .join(" ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .length;
   const exportTools = includeExports
     ? '<button class="button" type="button" id="toggle-document-history" aria-expanded="false">Version history</button><button class="button" id="validate-document">Validate</button><button class="button" data-export="pdf">Export PDF</button><button class="button primary" data-export="docx">Export DOCX</button>'
     : '<span class="small-label">Autosaves to this project</span>';
-  return `<div class="panel manuscript-workspace"><div class="section-heading"><div><h2>${escapeHtml(title)}</h2><p class="muted">Edit your draft here. Saved literature and appendix records are included in the references and appendix list when exported.</p></div><div class="toolbar">${exportTools}</div></div>
+  return `<div class="docs-editor-shell">
+    <header class="docs-filebar">
+      <div class="docs-file-info">
+        <button class="docs-back-button" type="button" data-go="dashboard" aria-label="Back to research workspace">←</button>
+        <span class="docs-file-icon" aria-hidden="true">▤</span>
+        <div class="docs-file-title"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(state.project.project_title)} · Research OS</span></div>
+      </div>
+      <div class="docs-file-actions">${exportTools}</div>
+    </header>
     ${includeExports ? '<div id="document-validation" class="notice" hidden></div>' : ""}
     ${includeExports ? '<section id="document-history" class="document-history" aria-live="polite" hidden></section>' : ""}
-    ${editorToolbar()}
-    <div class="toolbar" style="margin:12px 0"><span id="save-status" class="small-label">All changes saved</span><span class="spacer"></span><button class="button small" id="add-section" type="button">Add section</button></div>
-    <div id="document-sections">${sections.map((section, index) => `<details class="section-editor" open data-section-index="${index}">
-      <summary><span class="section-title">${escapeHtml(section.title || `Section ${index + 1}`)}</span></summary>
-      <div class="form-grid" style="padding:14px"><label>Heading<input class="section-heading-input" maxlength="240" value="${escapeHtml(section.title || "")}"></label><label>Heading level<select class="section-level">${[1, 2, 3].map((level) => `<option value="${level}" ${Number(section.level || 1) === level ? "selected" : ""}>Heading ${level}</option>`).join("")}</select></label>
-      <div class="full section-content editor" contenteditable="true" role="textbox" aria-label="${escapeHtml(section.title || `Section ${index + 1}`)} content" aria-multiline="true" spellcheck="true">${editorContent(section.content)}</div>
-      <div class="full toolbar"><button class="button small danger remove-section" type="button">Remove section</button></div></div></details>`).join("")}</div></div>`;
+    <div class="docs-toolbar-wrap">${editorToolbar()}</div>
+    <div class="docs-statusbar"><span id="save-status" role="status">All changes saved</span><span class="docs-status-divider"></span><span><strong id="manuscript-word-count">${wordCount.toLocaleString()}</strong> words</span><span class="spacer"></span><button class="button small" id="add-section" type="button">＋ Add section</button></div>
+    <div class="docs-content-layout">
+      <aside class="docs-outline" aria-label="Document outline">
+        <p class="docs-outline-label">DOCUMENT OUTLINE</p>
+        <nav>${sections.map((section, index) => `<button type="button" data-outline-index="${index}">${escapeHtml(section.title || `Section ${index + 1}`)}</button>`).join("")}</nav>
+      </aside>
+      <div class="docs-canvas" role="region" aria-label="Document">
+        <div id="document-sections" class="docs-page">${sections.map((section, index) => `<details class="section-editor" open id="document-section-${index}" data-section-index="${index}">
+          <summary><span class="section-title">${escapeHtml(section.title || `Section ${index + 1}`)}</span></summary>
+          <div class="section-meta"><label>Section heading<input class="section-heading-input" maxlength="240" value="${escapeHtml(section.title || "")}"></label><label>Style<select class="section-level" aria-label="Heading level">${[1, 2, 3].map((level) => `<option value="${level}" ${Number(section.level || 1) === level ? "selected" : ""}>Heading ${level}</option>`).join("")}</select></label></div>
+          <div class="section-content editor" contenteditable="true" role="textbox" aria-label="${escapeHtml(section.title || `Section ${index + 1}`)} content" aria-multiline="true" spellcheck="true">${editorContent(section.content)}</div>
+          <div class="section-actions"><button class="button small danger remove-section" type="button">Remove section</button></div></details>`).join("")}</div>
+      </div>
+    </div>
+  </div>`;
 }
 
 function toolCard(title, description, view, action) {
@@ -403,11 +461,69 @@ function renderWriting() {
     <div id="writing-result" class="result-box" aria-live="polite"></div></div>`;
 }
 
+function renderFramework() {
+  if (!state.frameworkBoard) state.frameworkBoard = emptyFrameworkBoard();
+  const projectOptions = state.projects.map((project) =>
+    `<option value="${escapeHtml(project.id)}" ${project.id === state.project.id ? "selected" : ""}>${escapeHtml(project.project_title)}</option>`
+  ).join("");
+  const boardOptions = state.frameworkBoards.map((board) =>
+    `<option value="${escapeHtml(board.id)}" ${board.id === state.frameworkBoard.id ? "selected" : ""}>${escapeHtml(board.title)}</option>`
+  ).join("");
+  return `<div class="frameworkshop">
+    <header class="frameworkshop-header">
+      <div class="frameworkshop-brand"><button class="fw-back" type="button" data-go="dashboard" aria-label="Back to dashboard">←</button><span class="fw-logo">◇</span><strong>Frameworkshop</strong><span class="fw-divider"></span><select id="framework-project-select" aria-label="Current project">${projectOptions}</select></div>
+      <div class="frameworkshop-document">
+        <input id="framework-board-title" aria-label="Framework board name" maxlength="240" value="${escapeHtml(state.frameworkBoard.title)}">
+        <select id="framework-board-select" aria-label="Open saved board"><option value="">New board</option>${boardOptions}</select>
+      </div>
+      <div class="frameworkshop-actions"><span id="framework-save-status" role="status">${state.frameworkBoard.id ? "Saved to this project" : "Unsaved board"}</span><button class="button small" id="framework-new-board" type="button">＋ New</button><button class="button small danger" id="framework-delete-board" type="button" ${state.frameworkBoard.id ? "" : "disabled"}>Delete</button><button class="button primary small" id="framework-save-board" type="button">Save</button></div>
+    </header>
+    <div class="frameworkshop-workspace">
+      <aside class="framework-ai-panel">
+        <div class="fw-panel-title"><span>✦</span><div><strong>AI framework builder</strong><small>Grounded in your study</small></div></div>
+        <p>Gemini can draft a theoretical or conceptual model. Check every suggested theory and relationship before use.</p>
+        <form id="framework-form">
+          <label>Framework type<select name="framework_type"><option value="theoretical" ${state.frameworkBoard.framework_type === "theoretical" ? "selected" : ""}>Theoretical framework</option><option value="conceptual" ${state.frameworkBoard.framework_type === "conceptual" ? "selected" : ""}>Conceptual framework</option></select></label>
+          <label>Study or research description<textarea name="study" required maxlength="27000" rows="9" placeholder="Paste your title, background, questions, variables, and methods…">${escapeHtml(state.frameworkBoard.study || "")}</textarea></label>
+          <label>What should the framework show?<textarea name="description" maxlength="2500" rows="5" placeholder="Optional: describe constructs, directions, or relationships.">${escapeHtml(state.frameworkBoard.description || "")}</textarea></label>
+          <button class="button primary wide" type="submit">✦ Generate diagram</button>
+        </form>
+        <div id="framework-ai-status" class="fw-ai-status" aria-live="polite"></div>
+        <button class="button small fw-insert-manuscript" id="insert-framework" type="button" ${state.frameworkBoard.manuscript_section ? "" : "disabled"}>Add write-up to manuscript</button>
+      </aside>
+      <section class="framework-board" aria-label="Framework whiteboard">
+        <div class="fw-toolbar" role="toolbar" aria-label="Whiteboard tools">
+          <div class="fw-tool-group">
+            <button type="button" class="fw-tool" data-add-shape="rectangle" title="Add rounded rectangle" aria-label="Add rounded rectangle">▱</button>
+            <button type="button" class="fw-tool" data-add-shape="ellipse" title="Add oval" aria-label="Add oval">◯</button>
+            <button type="button" class="fw-tool" data-add-shape="diamond" title="Add diamond" aria-label="Add diamond">◇</button>
+            <button type="button" class="fw-tool" data-add-shape="text" title="Add text" aria-label="Add text">T</button>
+          </div>
+          <span class="fw-toolbar-divider"></span>
+          <button type="button" class="fw-tool ${state.frameworkConnectFrom !== null ? "active" : ""}" id="framework-connect" title="Connect two shapes">↗ Connect</button>
+          <button type="button" class="fw-tool danger" id="framework-delete-node" title="Delete selected shape">⌫ Delete</button>
+          <span class="fw-toolbar-spacer"></span>
+          <button type="button" class="fw-tool" id="framework-zoom-out" aria-label="Zoom out">−</button><span id="framework-zoom-label">100%</span><button type="button" class="fw-tool" id="framework-zoom-in" aria-label="Zoom in">＋</button>
+        </div>
+        <div class="fw-canvas-wrap" id="framework-canvas-wrap">
+          <svg id="framework-svg" role="img" aria-label="Editable research framework diagram" viewBox="0 0 1400 900" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+        <footer class="fw-canvas-status"><span>Drag shapes to arrange · double-click a shape to rename · use Connect to add arrows</span><span id="framework-object-count"></span></footer>
+      </section>
+      <aside class="framework-inspector">
+        <div class="fw-inspector-heading"><strong>Design</strong><button class="button small" type="button" id="framework-reset-zoom">Fit</button></div>
+        <div id="framework-inspector-content"></div>
+        <div class="fw-board-help"><strong>Quick guide</strong><p>Add shapes from the toolbar, select one to edit its text and color, then use Connect and select two shapes to draw a relationship.</p></div>
+      </aside>
+    </div>
+  </div>`;
+}
+
 function renderLiterature() {
   return `<div class="panel"><h2>Search scholarly literature</h2><p>Search Crossref's bibliographic records. Metadata is returned by the source provider; abstracts may be unavailable.</p>
     <form id="literature-form" class="toolbar"><input name="q" required maxlength="500" placeholder="Topic, title, keyword, or author"><button class="button primary" type="submit">Search Crossref</button></form>
     <h3 style="margin-top:20px">Import references</h3><p>Import RIS or BibTeX exports from a reference manager. Imported metadata is unverified until checked against a provider record.</p>
-    <form id="reference-import-form" class="toolbar"><input name="file" type="file" accept=".ris,.bib,.bibtex" required><button class="button" type="submit">Import references</button></form>
+    <form id="reference-import-form" class="toolbar"><label class="file-picker-label">Reference file${filePicker("file", ".ris,.bib,.bibtex", true)}</label><button class="button" type="submit">Import references</button></form>
     <div id="reference-import-status" class="result-meta" aria-live="polite"></div>
     <div id="literature-results" class="result-list" style="margin-top:16px"></div></div>
     <div class="section-heading"><h2>Saved sources (${state.sources.length})</h2><button class="button primary" id="synthesize-literature" ${state.sources.length ? "" : "disabled"}>Draft literature synthesis</button></div>
@@ -442,7 +558,7 @@ function renderStatistics() {
     ["chi_square", "Chi-square test of independence"],
   ];
   return `<div class="panel"><h2>Import spreadsheet data</h2><p>Upload CSV, XLS, or XLSX data (20 MB max). The selected sheet is processed temporarily for analysis and is not saved to your project.</p>
-    <form id="statistics-import-form" class="toolbar"><input name="file" type="file" accept=".csv,.xls,.xlsx" required><button class="button" type="submit">Load data</button></form>
+    <form id="statistics-import-form" class="toolbar"><label class="file-picker-label">Spreadsheet${filePicker("file", ".csv,.xls,.xlsx", true)}</label><button class="button" type="submit">Load data</button></form>
     <div id="statistics-import-status" class="result-meta" aria-live="polite"></div>
     <label id="statistics-sheet-label" hidden>Worksheet<select id="statistics-sheet"></select></label>
     <div id="statistics-preview" class="result-box" hidden></div></div>
@@ -519,10 +635,36 @@ function renderBuilder() {
   return renderManuscriptEditor(currentDocument()?.document_title || "Research Manuscript", true);
 }
 
+function filePicker(name, accept, required = false) {
+  const identifier = `${name}-${Math.random().toString(36).slice(2, 9)}`;
+  return `<div class="file-picker">
+    <input id="${identifier}" class="file-input-native" name="${escapeHtml(name)}" type="file" accept="${escapeHtml(accept)}" ${required ? "required" : ""}>
+    <button class="button small" type="button" data-file-trigger>Choose file</button>
+    <span class="file-picker-name" data-file-name>No file chosen</span>
+  </div>`;
+}
+
+function bindFilePickers(root) {
+  root.querySelectorAll(".file-picker").forEach((picker) => {
+    if (picker.dataset.bound === "true") return;
+    picker.dataset.bound = "true";
+    const input = picker.querySelector('input[type="file"]');
+    picker.querySelector("[data-file-trigger]").addEventListener("click", (event) => {
+      event.preventDefault();
+      input.click();
+    });
+    input.addEventListener("change", () => {
+      picker.querySelector("[data-file-name]").textContent =
+        [...input.files].map((file) => file.name).join(", ") || "No file chosen";
+      picker.classList.toggle("has-file", input.files.length > 0);
+    });
+  });
+}
+
 function renderAppendices() {
   return `<div class="panel"><h2>Add appendix material</h2><p>Original files are stored separately from the editable manuscript. Supported types: PDF, DOCX, PNG/JPG, Excel, CSV, and TXT (20 MB max).</p>
     <form id="appendix-form"><div class="form-grid">
-      <label>File<input name="file" type="file" accept=".pdf,.docx,.png,.jpg,.jpeg,.xlsx,.xls,.csv,.txt" required></label>
+      <label>File${filePicker("file", ".pdf,.docx,.png,.jpg,.jpeg,.xlsx,.xls,.csv,.txt", true)}</label>
       <label>Title<input name="title" maxlength="240" placeholder="e.g. Research questionnaire"></label>
       <label class="full">Description<input name="description" maxlength="2000" placeholder="Optional notes"></label>
       <div class="full"><button class="button primary" type="submit">Upload appendix</button></div></div></form></div>
@@ -601,7 +743,7 @@ async function createProject(event) {
   try {
     const result = await api("/api/projects", { method: "POST", body: jsonBody(data) });
     await loadProjects();
-    setProject(result.project.id);
+    setProject(result.project.id, "dashboard");
     notify("Research project created.");
   } catch (error) {
     notify(error.message, true);
@@ -630,8 +772,10 @@ async function updateProject(event) {
 }
 
 function bindView(view) {
-  viewRoot.querySelectorAll("[data-go]").forEach((button) => button.addEventListener("click", () => renderView(button.dataset.go)));
-  if (view === "dashboard") bindBuilder();
+  bindFilePickers(viewRoot);
+  viewRoot.querySelectorAll("[data-go]").forEach((button) => button.addEventListener("click", () => {
+    if (viewTitles[button.dataset.go]) renderView(button.dataset.go);
+  }));
   if (view === "projects") {
     bindProjectForm();
     viewRoot.querySelectorAll("[data-project-update]").forEach((form) => form.addEventListener("submit", updateProject));
@@ -645,22 +789,539 @@ function bindView(view) {
       form.hidden = true;
       viewRoot.querySelector(`[data-edit-project="${CSS.escape(form.dataset.projectUpdate)}"]`)?.setAttribute("aria-expanded", "false");
     }));
-    viewRoot.querySelectorAll("[data-open-project]").forEach((button) => button.addEventListener("click", () => setProject(button.dataset.openProject)));
+    viewRoot.querySelectorAll("[data-open-project]").forEach((button) => button.addEventListener("click", () => setProject(button.dataset.openProject, "dashboard")));
     viewRoot.querySelectorAll("[data-delete-project]").forEach((button) => button.addEventListener("click", () => deleteProject(button.dataset.deleteProject)));
   }
   if (view === "writing") bindWriting();
   if (view === "literature") bindLiterature();
+  if (view === "framework") bindFramework();
   if (view === "statistics") bindStatistics();
   if (view === "builder") bindBuilder();
   if (view === "appendices") bindAppendices();
   if (view === "references") bindReferences();
 }
 
+function bindFramework() {
+  const form = viewRoot.querySelector("#framework-form");
+  const svg = viewRoot.querySelector("#framework-svg");
+  const board = state.frameworkBoard;
+  const status = viewRoot.querySelector("#framework-save-status");
+  const aiStatus = viewRoot.querySelector("#framework-ai-status");
+  let drag = null;
+  const randomId = () => window.crypto?.randomUUID?.() || `shape-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const markDirty = () => {
+    status.textContent = board.id ? "Unsaved changes" : "Unsaved board";
+    viewRoot.querySelector("#framework-delete-board").disabled = !board.id;
+  };
+  const pointFromEvent = (event) => {
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    return point.matrixTransform(svg.getScreenCTM().inverse());
+  };
+  const draw = () => renderFrameworkSvg(svg);
+  const newNode = (kind, label = "New concept", body = "") => {
+    if (board.diagram.nodes.length >= 60) return notify("A framework can contain up to 60 shapes.", true);
+    const index = board.diagram.nodes.length;
+    const x = 110 + (index % 3) * 410;
+    const y = 110 + Math.floor(index / 3) * 205;
+    const node = {
+      id: randomId(), kind, label, body, x, y,
+      width: kind === "text" ? 280 : 240, height: kind === "text" ? 88 : 120,
+      fill: kind === "text" ? "#fff8f9" : "#ffffff", color: "#30242a",
+    };
+    board.diagram.nodes.push(node);
+    state.frameworkSelectedNode = node.id;
+    draw();
+    renderFrameworkInspector();
+    markDirty();
+  };
+  const setZoom = (value) => {
+    state.frameworkZoom = Math.max(0.55, Math.min(1.5, value));
+    const width = Math.round(1400 / state.frameworkZoom);
+    const height = Math.round(900 / state.frameworkZoom);
+    svg.setAttribute("viewBox", `${Math.round((1400 - width) / 2)} ${Math.round((900 - height) / 2)} ${width} ${height}`);
+    viewRoot.querySelector("#framework-zoom-label").textContent = `${Math.round(state.frameworkZoom * 100)}%`;
+  };
+  const syncFields = () => {
+    board.title = viewRoot.querySelector("#framework-board-title").value.trim() || "Untitled framework";
+    board.framework_type = form.elements.framework_type.value;
+    board.study = form.elements.study.value;
+    board.description = form.elements.description.value;
+  };
+  const selectBoard = (id) => {
+    const saved = state.frameworkBoards.find((item) => item.id === id);
+    if (!saved) {
+      state.frameworkBoard = emptyFrameworkBoard();
+    } else {
+      state.frameworkBoard = {
+        id: saved.id,
+        title: saved.title,
+        framework_type: saved.framework_type,
+        study: saved.study_text,
+        description: saved.description,
+        diagram: saved.diagram,
+        manuscript_section: saved.manuscript_section || "",
+      };
+    }
+    state.frameworkSelectedNode = null;
+    state.frameworkConnectFrom = null;
+    renderView("framework");
+  };
+
+  draw();
+  setZoom(state.frameworkZoom);
+  renderFrameworkInspector();
+  viewRoot.querySelector("#framework-project-select").addEventListener("change", (event) => setProject(event.target.value, "framework"));
+  viewRoot.querySelector("#framework-board-select").addEventListener("change", (event) => {
+    if (event.target.value) selectBoard(event.target.value);
+    else selectBoard("");
+  });
+  viewRoot.querySelector("#framework-board-title").addEventListener("input", () => {
+    syncFields();
+    markDirty();
+  });
+  for (const field of form.querySelectorAll("select, textarea")) {
+    field.addEventListener("input", () => {
+      syncFields();
+      markDirty();
+    });
+    field.addEventListener("change", () => {
+      syncFields();
+      markDirty();
+    });
+  }
+  viewRoot.querySelectorAll("[data-add-shape]").forEach((button) => {
+    button.addEventListener("click", () => newNode(button.dataset.addShape, button.dataset.addShape === "text" ? "Double-click to edit" : "New concept"));
+  });
+  viewRoot.querySelector("#framework-connect").addEventListener("click", () => {
+    state.frameworkConnectFrom = null;
+    svg.classList.toggle("connecting");
+    const enabled = svg.classList.contains("connecting");
+    viewRoot.querySelector("#framework-connect").classList.toggle("active", enabled);
+    aiStatus.textContent = enabled ? "Select the starting shape, then the destination shape." : "";
+  });
+  viewRoot.querySelector("#framework-delete-node").addEventListener("click", () => {
+    const selected = state.frameworkSelectedNode;
+    if (!selected) return notify("Select a shape to remove.", true);
+    board.diagram.nodes = board.diagram.nodes.filter((node) => node.id !== selected);
+    board.diagram.edges = board.diagram.edges.filter((edge) => edge.from !== selected && edge.to !== selected);
+    state.frameworkSelectedNode = null;
+    draw();
+    renderFrameworkInspector();
+    markDirty();
+  });
+  viewRoot.querySelector("#framework-zoom-out").addEventListener("click", () => setZoom(state.frameworkZoom - 0.1));
+  viewRoot.querySelector("#framework-zoom-in").addEventListener("click", () => setZoom(state.frameworkZoom + 0.1));
+  viewRoot.querySelector("#framework-reset-zoom").addEventListener("click", () => setZoom(1));
+  viewRoot.querySelector("#framework-new-board").addEventListener("click", () => selectBoard(""));
+  viewRoot.querySelector("#framework-save-board").addEventListener("click", async () => {
+    syncFields();
+    const button = viewRoot.querySelector("#framework-save-board");
+    button.disabled = true;
+    try {
+      const payload = {
+        title: board.title,
+        framework_type: board.framework_type,
+        study: board.study,
+        description: board.description,
+        manuscript_section: board.manuscript_section || "",
+        diagram: board.diagram,
+      };
+      const result = await api(
+        board.id ? `/api/frameworks/${encodeURIComponent(board.id)}` : `/api/projects/${encodeURIComponent(state.project.id)}/frameworks`,
+        { method: board.id ? "PUT" : "POST", body: jsonBody(payload) },
+      );
+      const saved = result.board;
+      Object.assign(board, {
+        id: saved.id,
+        title: saved.title,
+        framework_type: saved.framework_type,
+        study: saved.study_text,
+        description: saved.description,
+        diagram: saved.diagram,
+        manuscript_section: saved.manuscript_section || "",
+      });
+      state.frameworkBoards = [saved, ...state.frameworkBoards.filter((item) => item.id !== saved.id)];
+      viewRoot.querySelector("#framework-board-select").innerHTML =
+        `<option value="">New board</option>${state.frameworkBoards.map((item) =>
+          `<option value="${escapeHtml(item.id)}" ${item.id === saved.id ? "selected" : ""}>${escapeHtml(item.title)}</option>`
+        ).join("")}`;
+      status.textContent = "All changes saved";
+      viewRoot.querySelector("#framework-delete-board").disabled = false;
+      notify("Framework board saved to this project.");
+    } catch (error) {
+      notify(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  viewRoot.querySelector("#framework-delete-board").addEventListener("click", async () => {
+    if (!board.id || !confirm("Delete this saved framework board?")) return;
+    try {
+      await api(`/api/frameworks/${encodeURIComponent(board.id)}`, { method: "DELETE" });
+      state.frameworkBoards = state.frameworkBoards.filter((item) => item.id !== board.id);
+      state.frameworkBoard = emptyFrameworkBoard();
+      state.frameworkSelectedNode = null;
+      renderView("framework");
+      notify("Framework board deleted.");
+    } catch (error) {
+      notify(error.message, true);
+    }
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    const values = Object.fromEntries(new FormData(form).entries());
+    button.disabled = true;
+    aiStatus.textContent = "Gemini is reading your study and arranging the framework…";
+    try {
+      const result = await api(`/api/projects/${encodeURIComponent(state.project.id)}/framework`, {
+        method: "POST",
+        body: jsonBody(values),
+      });
+      Object.assign(board, {
+        id: null,
+        title: result.title,
+        framework_type: result.framework_type,
+        study: values.study,
+        description: values.description,
+        diagram: frameworkDiagramFromResult(result, randomId),
+        manuscript_section: result.manuscript_section,
+      });
+      state.frameworkSelectedNode = null;
+      viewRoot.querySelector("#framework-board-title").value = result.title;
+      viewRoot.querySelector("#framework-board-select").value = "";
+      aiStatus.textContent = `${result.framework_type === "theoretical" ? "Theoretical" : "Conceptual"} draft ready. Move, edit, and arrange each shape, then save the board.`;
+      draw();
+      renderFrameworkInspector();
+      markDirty();
+    } catch (error) {
+      aiStatus.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  viewRoot.querySelector("#insert-framework").addEventListener("click", () => {
+    syncFields();
+    if (board.manuscript_section) insertFramework({
+      framework_type: board.framework_type,
+      manuscript_section: board.manuscript_section,
+    });
+  });
+  svg.addEventListener("pointerdown", (event) => {
+    const target = event.target.closest("[data-node-id]");
+    if (!target) {
+      state.frameworkSelectedNode = null;
+      renderFrameworkInspector();
+      draw();
+      return;
+    }
+    const nodeId = target.dataset.nodeId;
+    if (svg.classList.contains("connecting")) {
+      if (!state.frameworkConnectFrom) {
+        state.frameworkConnectFrom = nodeId;
+        state.frameworkSelectedNode = nodeId;
+        aiStatus.textContent = "Now select the destination shape.";
+      } else {
+        if (state.frameworkConnectFrom !== nodeId) {
+          if (board.diagram.edges.length >= 100) {
+            notify("A framework can contain up to 100 connections.", true);
+          } else {
+            board.diagram.edges.push({
+              id: randomId(), from: state.frameworkConnectFrom, to: nodeId, label: "",
+            });
+            markDirty();
+          }
+        }
+        state.frameworkConnectFrom = null;
+        svg.classList.remove("connecting");
+        viewRoot.querySelector("#framework-connect").classList.remove("active");
+        aiStatus.textContent = "";
+      }
+      draw();
+      renderFrameworkInspector();
+      return;
+    }
+    state.frameworkSelectedNode = nodeId;
+    const node = board.diagram.nodes.find((item) => item.id === nodeId);
+    const point = pointFromEvent(event);
+    drag = { id: nodeId, x: point.x, y: point.y, nodeX: node.x, nodeY: node.y, moved: false };
+    svg.setPointerCapture(event.pointerId);
+    draw();
+    renderFrameworkInspector();
+  });
+  svg.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const point = pointFromEvent(event);
+    const node = board.diagram.nodes.find((item) => item.id === drag.id);
+    if (!node) return;
+    node.x = Math.max(0, Math.min(10000, Math.round(drag.nodeX + point.x - drag.x)));
+    node.y = Math.max(0, Math.min(10000, Math.round(drag.nodeY + point.y - drag.y)));
+    drag.moved = true;
+    draw();
+  });
+  const finishDrag = () => {
+    if (drag?.moved) markDirty();
+    drag = null;
+  };
+  svg.addEventListener("pointerup", finishDrag);
+  svg.addEventListener("pointercancel", finishDrag);
+  svg.addEventListener("dblclick", (event) => {
+    const target = event.target.closest("[data-node-id]");
+    if (!target) return;
+    const node = board.diagram.nodes.find((item) => item.id === target.dataset.nodeId);
+    const label = prompt("Edit shape text:", node.label);
+    if (label === null) return;
+    node.label = label.trim().slice(0, 240) || "Untitled";
+    state.frameworkSelectedNode = node.id;
+    draw();
+    renderFrameworkInspector();
+    markDirty();
+  });
+  svg.addEventListener("wheel", (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    setZoom(state.frameworkZoom + (event.deltaY < 0 ? 0.05 : -0.05));
+  }, { passive: false });
+}
+
+function emptyFrameworkBoard() {
+  return {
+    id: null,
+    title: "Untitled framework",
+    framework_type: "conceptual",
+    study: "",
+    description: "",
+    diagram: { nodes: [], edges: [] },
+    manuscript_section: "",
+  };
+}
+
+function frameworkDiagramFromResult(result, randomId) {
+  const nodes = result.constructs.map((construct, index) => {
+    const role = construct.role.toLowerCase();
+    const kind = /outcome|dependent|result/.test(role)
+      ? "ellipse"
+      : /mediator|moderator/.test(role) ? "diamond" : "rectangle";
+    return {
+      id: randomId(),
+      kind,
+      label: construct.name.slice(0, 240),
+      body: `${construct.role}: ${construct.description}`.slice(0, 1000),
+      x: 100 + (index % 3) * 430,
+      y: 120 + Math.floor(index / 3) * 230,
+      width: 250,
+      height: 128,
+      fill: kind === "ellipse" ? "#fde9ee" : kind === "diamond" ? "#fff1df" : "#ffffff",
+      color: "#30242a",
+    };
+  });
+  if (result.theoretical_basis) {
+    nodes.push({
+      id: randomId(), kind: "text", label: "Theoretical basis",
+      body: result.theoretical_basis.slice(0, 1000),
+      x: 1020, y: 120, width: 280, height: 150,
+      fill: "#fff8f9", color: "#30242a",
+    });
+  }
+  const findNode = (name) => {
+    const query = name.trim().toLowerCase();
+    return nodes.find((node) => node.label.toLowerCase() === query)
+      || nodes.find((node) => node.label.toLowerCase().includes(query) || query.includes(node.label.toLowerCase()));
+  };
+  const edges = result.relationships.flatMap((relationship) => {
+    const from = findNode(relationship.from);
+    const to = findNode(relationship.to);
+    return from && to ? [{
+      id: randomId(),
+      from: from.id,
+      to: to.id,
+      label: relationship.description.slice(0, 120),
+    }] : [];
+  });
+  return { nodes, edges };
+}
+
+function renderFrameworkSvg(svg) {
+  if (!svg) return;
+  const board = state.frameworkBoard || emptyFrameworkBoard();
+  const ns = "http://www.w3.org/2000/svg";
+  svg.replaceChildren();
+  const defs = document.createElementNS(ns, "defs");
+  defs.innerHTML = `<pattern id="fw-grid" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.2" fill="#d9d4d7"/></pattern><marker id="fw-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9f6172"/></marker><filter id="fw-shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#60404b" flood-opacity=".12"/></filter>`;
+  svg.append(defs);
+  const background = document.createElementNS(ns, "rect");
+  background.setAttribute("width", "1400");
+  background.setAttribute("height", "900");
+  background.setAttribute("fill", "url(#fw-grid)");
+  svg.append(background);
+  const nodeById = new Map(board.diagram.nodes.map((node) => [node.id, node]));
+  for (const edge of board.diagram.edges) {
+    const from = nodeById.get(edge.from);
+    const to = nodeById.get(edge.to);
+    if (!from || !to) continue;
+    const fromCenter = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+    const toCenter = { x: to.x + to.width / 2, y: to.y + to.height / 2 };
+    const direction = { x: toCenter.x - fromCenter.x, y: toCenter.y - fromCenter.y };
+    const boundaryPoint = (node, center, vector, reverse = false) => {
+      const dx = reverse ? -vector.x : vector.x;
+      const dy = reverse ? -vector.y : vector.y;
+      if (Math.hypot(dx, dy) < 0.0001) return center;
+      const halfWidth = node.width / 2;
+      const halfHeight = node.height / 2;
+      let scale;
+      if (node.kind === "ellipse") {
+        scale = 1 / Math.sqrt((dx / halfWidth) ** 2 + (dy / halfHeight) ** 2);
+      } else if (node.kind === "diamond") {
+        scale = 1 / (Math.abs(dx) / halfWidth + Math.abs(dy) / halfHeight);
+      } else {
+        scale = Math.min(
+          halfWidth / Math.max(Math.abs(dx), 0.0001),
+          halfHeight / Math.max(Math.abs(dy), 0.0001),
+        );
+      }
+      return { x: center.x + dx * scale, y: center.y + dy * scale };
+    };
+    const start = boundaryPoint(from, fromCenter, direction);
+    const end = boundaryPoint(to, toCenter, direction, true);
+    const { x: x1, y: y1 } = start;
+    const { x: x2, y: y2 } = end;
+    const line = document.createElementNS(ns, "line");
+    for (const [name, value] of Object.entries({
+      x1, y1, x2, y2, stroke: "#9f6172", "stroke-width": "3", "marker-end": "url(#fw-arrow)",
+      "data-edge-id": edge.id,
+    })) line.setAttribute(name, String(value));
+    svg.append(line);
+    if (edge.label) {
+      const label = document.createElementNS(ns, "text");
+      label.setAttribute("x", String((x1 + x2) / 2));
+      label.setAttribute("y", String((y1 + y2) / 2 - 8));
+      label.setAttribute("class", "fw-edge-label");
+      label.textContent = edge.label;
+      svg.append(label);
+    }
+  }
+  for (const node of board.diagram.nodes) {
+    const group = document.createElementNS(ns, "g");
+    group.setAttribute("transform", `translate(${node.x} ${node.y})`);
+    group.setAttribute("class", `fw-node ${state.frameworkSelectedNode === node.id ? "selected" : ""}`);
+    group.setAttribute("data-node-id", node.id);
+    if (node.kind === "ellipse") {
+      const shape = document.createElementNS(ns, "ellipse");
+      shape.setAttribute("cx", String(node.width / 2));
+      shape.setAttribute("cy", String(node.height / 2));
+      shape.setAttribute("rx", String(node.width / 2));
+      shape.setAttribute("ry", String(node.height / 2));
+      shape.setAttribute("class", "fw-shape");
+      shape.setAttribute("fill", node.fill);
+      group.append(shape);
+    } else if (node.kind === "diamond") {
+      const shape = document.createElementNS(ns, "path");
+      shape.setAttribute("d", `M${node.width / 2} 0 L${node.width} ${node.height / 2} L${node.width / 2} ${node.height} L0 ${node.height / 2} Z`);
+      shape.setAttribute("class", "fw-shape");
+      shape.setAttribute("fill", node.fill);
+      group.append(shape);
+    } else {
+      const shape = document.createElementNS(ns, "rect");
+      shape.setAttribute("width", String(node.width));
+      shape.setAttribute("height", String(node.height));
+      shape.setAttribute("rx", node.kind === "text" ? "8" : "18");
+      shape.setAttribute("class", `fw-shape ${node.kind === "text" ? "fw-text-shape" : ""}`);
+      shape.setAttribute("fill", node.fill);
+      group.append(shape);
+    }
+    const labelLines = wrapFrameworkText(node.label, Math.max(12, Math.floor(node.width / 10)));
+    const bodyLines = wrapFrameworkText(node.body || "", Math.max(18, Math.floor(node.width / 8)));
+    const totalLines = labelLines.length + bodyLines.length;
+    const startY = node.height / 2 - totalLines * 9 + 12;
+    [...labelLines, ...bodyLines].slice(0, 6).forEach((line, index) => {
+      const text = document.createElementNS(ns, "text");
+      text.setAttribute("x", String(node.width / 2));
+      text.setAttribute("y", String(startY + index * 19));
+      text.setAttribute("class", `fw-node-text ${index < labelLines.length ? "fw-node-label" : "fw-node-body"}`);
+      text.setAttribute("fill", node.color);
+      text.textContent = line;
+      group.append(text);
+    });
+    svg.append(group);
+  }
+  const count = viewRoot.querySelector("#framework-object-count");
+  if (count) count.textContent = `${board.diagram.nodes.length} shapes · ${board.diagram.edges.length} connections`;
+}
+
+function wrapFrameworkText(value, width) {
+  if (!value) return [];
+  const words = value.split(/\s+/);
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    if (line && `${line} ${word}`.length > width) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, 4);
+}
+
+function renderFrameworkInspector() {
+  const root = viewRoot.querySelector("#framework-inspector-content");
+  if (!root) return;
+  const node = state.frameworkBoard?.diagram.nodes.find((item) => item.id === state.frameworkSelectedNode);
+  if (!node) {
+    root.innerHTML = '<p class="fw-inspector-empty">Select a shape to edit its text, shape, and colors.</p>';
+    return;
+  }
+  root.innerHTML = `<label>Text<input id="fw-node-label" maxlength="240" value="${escapeHtml(node.label)}"></label>
+    <label>Notes<textarea id="fw-node-body" maxlength="1000" rows="4">${escapeHtml(node.body || "")}</textarea></label>
+    <label>Shape<select id="fw-node-kind"><option value="rectangle" ${node.kind === "rectangle" ? "selected" : ""}>Rounded rectangle</option><option value="ellipse" ${node.kind === "ellipse" ? "selected" : ""}>Oval</option><option value="diamond" ${node.kind === "diamond" ? "selected" : ""}>Diamond</option><option value="text" ${node.kind === "text" ? "selected" : ""}>Text</option></select></label>
+    <div class="fw-color-row"><label>Fill<input id="fw-node-fill" type="color" value="${escapeHtml(node.fill)}"></label><label>Text color<input id="fw-node-color" type="color" value="${escapeHtml(node.color)}"></label></div>`;
+  const update = (key, value) => {
+    node[key] = value;
+    renderFrameworkSvg(viewRoot.querySelector("#framework-svg"));
+    viewRoot.querySelector("#framework-object-count").textContent =
+      `${state.frameworkBoard.diagram.nodes.length} shapes · ${state.frameworkBoard.diagram.edges.length} connections`;
+    viewRoot.querySelector("#framework-save-status").textContent = state.frameworkBoard.id ? "Unsaved changes" : "Unsaved board";
+  };
+  root.querySelector("#fw-node-label").addEventListener("input", (event) => update("label", event.target.value));
+  root.querySelector("#fw-node-body").addEventListener("input", (event) => update("body", event.target.value));
+  root.querySelector("#fw-node-kind").addEventListener("change", (event) => update("kind", event.target.value));
+  root.querySelector("#fw-node-fill").addEventListener("input", (event) => update("fill", event.target.value));
+  root.querySelector("#fw-node-color").addEventListener("input", (event) => update("color", event.target.value));
+}
+
+async function insertFramework(framework) {
+  const documentRecord = currentDocument();
+  if (!documentRecord) return notify("Create a manuscript before inserting a framework.", true);
+  const sections = documentSections().map((section) => ({ ...section }));
+  sections.push({
+    id: `section-${sections.length + 1}`,
+    title: framework.framework_type === "theoretical" ? "Theoretical Framework" : "Conceptual Framework",
+    content: `<p>${escapeHtml(framework.manuscript_section).replace(/\n/g, "<br>")}</p>`,
+    level: 1,
+  });
+  try {
+    const result = await api(`/api/documents/${encodeURIComponent(documentRecord.id)}/autosave`, {
+      method: "PUT",
+      body: jsonBody({ content: { sections }, version: documentRecord.version }),
+    });
+    documentRecord.version = result.version;
+    documentRecord.content = { sections };
+    await renderView("builder");
+    notify("Framework draft added to the manuscript; review it before use.");
+  } catch (error) {
+    notify(error.message, true);
+  }
+}
+
 async function deleteProject(projectId) {
   if (!confirm("Delete this project, its sources, documents, and uploaded files? This cannot be undone.")) return;
   try {
     await api(`/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" });
-    localStorage.removeItem("research-os-project");
+    if (state.project?.id === projectId) localStorage.removeItem("research-os-project");
     await loadProjects();
     await renderView(state.projects.length ? "projects" : "dashboard");
     notify("Project deleted.");
@@ -1062,9 +1723,33 @@ function bindBuilder() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(save, 800);
   };
+  const outline = viewRoot.querySelector(".docs-outline nav");
+  const refreshOutline = () => {
+    const sections = [...container.querySelectorAll(".section-editor")];
+    sections.forEach((section, index) => {
+      section.dataset.sectionIndex = String(index);
+      section.id = `document-section-${index}`;
+    });
+    outline.innerHTML = sections.map((section, index) => {
+      const heading = section.querySelector(".section-heading-input").value || `Section ${index + 1}`;
+      return `<button type="button" data-outline-index="${index}">${escapeHtml(heading)}</button>`;
+    }).join("");
+  };
+  outline.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-outline-index]");
+    if (!button) return;
+    const section = container.querySelector(`#document-section-${Number(button.dataset.outlineIndex)}`);
+    if (!section) return;
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+    section.querySelector(".section-content").focus({ preventScroll: true });
+  });
   container.addEventListener("input", (event) => {
     if (event.target.matches(".section-heading-input")) {
-      event.target.closest(".section-editor").querySelector("summary .section-title").textContent = event.target.value || "Untitled section";
+      const section = event.target.closest(".section-editor");
+      const heading = event.target.value || "Untitled section";
+      section.querySelector("summary .section-title").textContent = heading;
+      const outlineButton = outline.querySelector(`[data-outline-index="${section.dataset.sectionIndex}"]`);
+      if (outlineButton) outlineButton.textContent = heading;
     }
     scheduleSave();
   });
@@ -1187,18 +1872,29 @@ function bindBuilder() {
     const section = document.createElement("details");
     section.className = "section-editor";
     section.open = true;
-    section.innerHTML = `<summary><span class="section-title">New section</span></summary><div class="form-grid" style="padding:14px"><label>Heading<input class="section-heading-input" maxlength="240" value="New section"></label><label>Heading level<select class="section-level"><option value="1">Heading 1</option><option value="2">Heading 2</option><option value="3">Heading 3</option></select></label><div class="full section-content editor" contenteditable="true" role="textbox" aria-label="New section content" aria-multiline="true" spellcheck="true"><p></p></div><div class="full toolbar"><button class="button small danger remove-section" type="button">Remove section</button></div></div>`;
+    section.innerHTML = `<summary><span class="section-title">New section</span></summary><div class="section-meta"><label>Section heading<input class="section-heading-input" maxlength="240" value="New section"></label><label>Style<select class="section-level" aria-label="Heading level"><option value="1">Heading 1</option><option value="2">Heading 2</option><option value="3">Heading 3</option></select></label></div><div class="section-content editor" contenteditable="true" role="textbox" aria-label="New section content" aria-multiline="true" spellcheck="true"><p></p></div><div class="section-actions"><button class="button small danger remove-section" type="button">Remove section</button></div>`;
     container.append(section);
+    refreshOutline();
     const editor = section.querySelector(".section-content");
+    const rememberSelection = () => {
+      const selection = window.getSelection();
+      if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
+        state.activeEditor = editor;
+        state.savedSelection = selection.getRangeAt(0).cloneRange();
+      }
+    };
     editor.addEventListener("focus", () => { state.activeEditor = editor; });
-    editor.addEventListener("mouseup", () => { state.activeEditor = editor; });
-    editor.addEventListener("keyup", () => { state.activeEditor = editor; });
+    editor.addEventListener("mouseup", rememberSelection);
+    editor.addEventListener("keyup", rememberSelection);
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+    editor.focus({ preventScroll: true });
     scheduleSave();
   });
   container.addEventListener("click", (event) => {
     if (event.target.matches(".remove-section")) {
       event.preventDefault();
       event.target.closest(".section-editor").remove();
+      refreshOutline();
       scheduleSave();
     }
   });

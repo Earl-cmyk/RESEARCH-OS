@@ -1,0 +1,161 @@
+respondent_id,age_years,year_level,program,weekly_study_hours,nightly_sleep_hours,daily_recreational_screen_hours,class_attendance_percent,primary_study_strategy,study_habit_item_1,study_habit_item_2,study_habit_item_3,study_habit_item_4,study_habit_item_5,study_habit_mean,stress_item_1,stress_item_2,stress_item_3,stress_item_4,perceived_stress_mean,academic_performance_score,academic_performance_band
+R001,19,4,Computer Engineering,9.6,5.8,2.1,94.4,Mixed Strategy,3,3,3,3,4,3.2,3,1,2,4,2.5,84.2,Good
+R002,20,1,Education,6.3,4.1,4.0,98.3,Cramming,2,4,3,2,3,2.8,3,3,2,3,2.75,71.1,Needs Improvement
+R003,21,2,Business Administration,22.1,7.2,6.0,88.0,Group Study,4,4,4,4,4,4.0,2,2,3,4,2.75,80.4,Good
+R004,21,1,Education,14.6,5.6,5.0,87.0,Cramming,4,4,4,3,2,3.4,2,3,3,2,2.5,80.2,Good
+R005,24,3,Education,10.8,6.5,5.7,81.3,Group Study,3,3,3,3,3,3.0,3,3,3,3,3.0,83.8,Good
+R006,20,4,Education,11.0,5.9,3.7,88.9,Spaced Practice,3,4,3,4,4,3.6,5,4,2,3,3.5,80.2,Good
+R007,21,4,Computer Engineering,3.2,7.8,5.1,82.6,Mixed Strategy,3,2,3,3,2,2.6,2,4,1,2,2.25,70.6,Needs Improvement
+R008,21,1,Business Administration,15.2,6.6,5.6,89.2,Spaced Practice,2,3,3,3,3,2.8,3,3,3,4,3.25,89.3,Very Good
+R009,23,4,Computer Engineering,8.8,6.3,7.2,91.4,Group Study,2,3,3,3,2,2.6,3,4,4,3,3.5,79.7,Satisfactory
+R010,21,2,Computer Engineering,6.5,4.4,3.2,83.3,Spaced Practice,1,2,3,2,2,2.0,4,4,4,3,3.75,90.3,Excellent
+R011,18,1,Education,14.3,6.4,6.4,75.5,Spaced Practice,3,3,3,2,3,2.8,1,3,3,2,2.25,76.5,Satisfactory
+R012,23,4,Computer Engineering,9.9,7.2,4.2,87.3,Spaced Practice,3,4,3,3,3,3.2,2,4,4,4,3.5,76.0,Satisfactory
+R013,21,2,Mechanical Engineering,10.3,7.8,2.8,69.9,Spaced Practice,5,4,3,4,3,3.8,1,1,2,3,1.75,82.6,Good
+R014,21,2,Computer Engineering,19.1,6.1,7.4,71.8,Mixed Strategy,3,5,4,5,5,4.4,4,4,3,4,3.75,70.9,Needs Improvement
+R015,21,1,Information Technology,5.3,5.8,4.3,90.8,Group Study,2,3,3,2,2,2.4,4,2,2,3,2.75,77.1,Satisfactory
+R016,18,3,Information Technology,11.3,6.8,7.6,94.2,Group Study,3,3,3,3,3,3.0,5,5,5,5,5.0,70.2,Needs Improvement
+R017,21,1,Education,11.8,8.3,10.4,93.9,Mixed Strategy,3,4,3,3,3,3.2,2,2,3,4,2.75,73.8,Needs Improvement
+R018,20,3,Education,10.9,6.5,5.7,78.1,Spaced Practice,1,2,2,3,2,2.0,3,4,3,3,3.25,81.8,Good
+R019,20,1,Computer Engineering,5.2,6.6,2.7,97.3,Group Study,2,3,3,2,2,2.4,3,3,1,3,2.5,82.2,Good
+R020,20,4,Computer Engineering,8.7,7.8,5.5,74.4,Group Study,3,3,2,3,2,2.6,2,3,2,2,2.25,74.4,Needs Improvement
+R021,18,2,Education,7.2,5.2,5.9,94.9,Spaced Practice,3,2,2,1,2,2.0,4,5,3,2,3.5,69.6,Needs Improvement
+R022,23,2,Computer Engineering,9.1,7.4,6.7,92.7,Spaced Practice,2,3,2,3,4,2.8,1,2,2,1,1.5,85.6,Very Good
+R023,24,3,Mechanical Engineering,3.1,5.6,3.7,91.5,Spaced Practice,2,2,3,2,2,2.2,2,2,4,4,3.0,80.0,Good
+R024,18,3,Information Technology,6.6,7.2,6.9,91.9,Spaced Practice,1,2,2,1,2,1.6,5,4,4,4,4.25,77.7,Satisfactory
+R025,20,2,Education,24.0,6.6,5.3,86.6,Cramming,5,5,5,5,5,5.0,4,4,5,4,4.25,80.3,Good
+R026,24,4,Information Technology,9.2,6.4,7.7,93.4,Cramming,2,3,2,3,2,2.4,4,3,4,3,3.5,74.0,Needs Improvement
+R027,21,2,Education,3.3,5.5,7.4,98.7,Group Study,1,2,3,3,2,2.2,4,4,4,3,3.75,80.6,Good
+R028,22,3,Information Technology,10.9,5.9,8.4,95.4,Spaced Practice,4,3,2,3,3,3.0,3,3,4,3,3.25,73.1,Needs Improvement
+R029,23,3,Information Technology,11.5,7.0,3.9,92.9,Mixed Strategy,3,3,3,3,3,3.0,3,4,3,3,3.25,79.2,Satisfactory
+R030,20,4,Business Administration,6.0,5.4,6.0,82.8,Spaced Practice,2,2,1,1,2,1.6,4,3,4,3,3.5,80.4,Good
+R031,21,2,Information Technology,19.0,6.4,5.4,90.2,Spaced Practice,4,5,3,5,4,4.2,3,2,4,2,2.75,93.9,Excellent
+R032,20,1,Computer Engineering,12.8,5.2,4.5,75.4,Spaced Practice,3,4,4,4,5,4.0,3,2,4,4,3.25,79.3,Satisfactory
+R033,21,1,Computer Engineering,16.9,6.7,5.3,90.3,Mixed Strategy,3,5,4,4,4,4.0,3,3,3,4,3.25,74.5,Needs Improvement
+R034,19,1,Information Technology,5.9,6.7,3.1,75.6,Spaced Practice,2,3,3,3,2,2.6,1,3,4,1,2.25,81.4,Good
+R035,22,1,Computer Engineering,11.6,6.7,3.2,88.1,Mixed Strategy,3,3,4,4,4,3.6,2,1,2,2,1.75,85.0,Very Good
+R036,22,1,Computer Engineering,21.9,7.0,7.9,87.5,Mixed Strategy,4,4,5,4,5,4.4,3,3,3,3,3.0,87.2,Very Good
+R037,22,2,Information Technology,13.2,7.2,5.1,86.2,Cramming,3,2,3,3,2,2.6,2,3,2,4,2.75,74.1,Needs Improvement
+R038,21,4,Computer Engineering,7.9,6.4,5.6,82.9,Spaced Practice,3,4,3,2,2,2.8,2,3,3,3,2.75,88.0,Very Good
+R039,20,1,Computer Engineering,6.3,6.1,4.7,90.7,Cramming,2,3,3,3,3,2.8,3,3,3,5,3.5,65.7,Needs Improvement
+R040,20,2,Computer Engineering,24.7,5.4,3.5,74.8,Mixed Strategy,5,4,4,4,5,4.4,4,4,3,4,3.75,88.7,Very Good
+R041,22,1,Computer Engineering,15.3,6.6,5.3,89.8,Cramming,4,4,4,3,4,3.8,2,3,4,2,2.75,77.4,Satisfactory
+R042,22,1,Computer Engineering,14.2,5.7,5.1,83.1,Spaced Practice,4,3,4,4,4,3.8,2,3,3,3,2.75,89.0,Very Good
+R043,20,1,Computer Engineering,5.1,6.3,6.1,81.3,Mixed Strategy,2,1,2,2,1,1.6,2,1,2,1,1.5,65.6,Needs Improvement
+R044,21,2,Information Technology,14.2,8.1,4.1,86.1,Spaced Practice,3,3,3,3,5,3.4,3,4,4,3,3.5,87.0,Very Good
+R045,22,3,Business Administration,5.7,8.6,6.2,95.9,Cramming,1,2,2,3,2,2.0,3,4,2,4,3.25,73.8,Needs Improvement
+R046,20,1,Information Technology,8.7,6.8,6.9,79.7,Mixed Strategy,3,4,4,3,4,3.6,4,3,3,4,3.5,68.9,Needs Improvement
+R047,18,2,Information Technology,10.8,8.2,4.3,87.3,Mixed Strategy,3,3,4,4,3,3.4,1,2,2,1,1.5,75.9,Satisfactory
+R048,24,2,Business Administration,5.4,4.8,5.4,74.7,Group Study,2,3,1,1,2,1.8,2,3,3,3,2.75,70.0,Needs Improvement
+R049,21,3,Mechanical Engineering,15.9,6.2,4.8,85.7,Group Study,3,4,4,3,4,3.6,2,3,3,2,2.5,82.5,Good
+R050,21,3,Computer Engineering,7.5,6.2,5.6,71.0,Spaced Practice,2,3,2,2,2,2.2,3,2,3,3,2.75,83.0,Good
+R051,21,1,Information Technology,8.3,7.2,3.2,94.4,Mixed Strategy,2,2,2,3,2,2.2,2,2,2,2,2.0,87.3,Very Good
+R052,19,2,Mechanical Engineering,20.3,5.2,5.8,83.4,Cramming,4,4,4,5,4,4.2,3,4,2,3,3.0,72.7,Needs Improvement
+R053,22,1,Mechanical Engineering,7.7,5.4,3.7,90.3,Spaced Practice,4,3,3,3,3,3.2,4,2,4,4,3.5,79.7,Satisfactory
+R054,20,4,Business Administration,13.7,7.1,2.7,87.1,Mixed Strategy,4,3,3,3,4,3.4,3,5,3,4,3.75,82.0,Good
+R055,20,3,Computer Engineering,7.1,7.5,5.1,91.4,Mixed Strategy,2,2,3,3,2,2.4,3,4,2,4,3.25,85.3,Very Good
+R056,19,1,Computer Engineering,9.3,7.5,5.2,91.9,Mixed Strategy,2,2,3,3,3,2.6,3,2,2,3,2.5,90.1,Excellent
+R057,20,2,Business Administration,5.0,8.2,3.1,96.6,Mixed Strategy,3,3,4,3,4,3.4,3,1,2,3,2.25,86.1,Very Good
+R058,18,1,Education,10.6,4.6,5.2,82.5,Group Study,2,2,3,3,2,2.4,3,3,4,4,3.5,77.7,Satisfactory
+R059,21,3,Education,7.8,6.9,4.8,76.3,Cramming,2,2,2,2,3,2.2,3,3,3,2,2.75,75.1,Satisfactory
+R060,21,1,Business Administration,12.8,6.1,5.3,100.0,Mixed Strategy,2,3,3,2,3,2.6,3,3,3,4,3.25,88.9,Very Good
+R061,24,4,Information Technology,10.6,5.8,3.1,99.9,Spaced Practice,3,3,3,3,2,2.8,2,2,2,2,2.0,82.3,Good
+R062,18,3,Business Administration,15.4,6.1,5.8,91.3,Spaced Practice,3,3,4,4,3,3.4,4,3,2,4,3.25,84.6,Good
+R063,22,1,Computer Engineering,16.7,7.2,2.4,95.9,Mixed Strategy,4,4,3,4,4,3.8,2,2,2,3,2.25,74.2,Needs Improvement
+R064,22,3,Computer Engineering,19.9,3.7,2.4,91.7,Cramming,4,4,3,4,4,3.8,3,3,3,2,2.75,82.7,Good
+R065,20,2,Business Administration,6.2,6.4,3.4,97.8,Mixed Strategy,2,2,1,2,2,1.8,4,2,2,4,3.0,76.6,Satisfactory
+R066,21,3,Information Technology,8.2,6.0,3.1,80.2,Mixed Strategy,3,3,4,3,3,3.2,3,3,3,4,3.25,84.5,Good
+R067,21,1,Computer Engineering,5.7,5.2,4.9,88.6,Spaced Practice,1,3,3,3,2,2.4,4,2,2,4,3.0,79.1,Satisfactory
+R068,22,3,Education,13.3,5.5,5.4,76.6,Mixed Strategy,3,2,3,3,3,2.8,3,5,2,3,3.25,84.1,Good
+R069,20,3,Education,10.7,7.5,8.3,77.4,Cramming,4,3,3,3,3,3.2,4,3,2,3,3.0,70.1,Needs Improvement
+R070,21,3,Computer Engineering,4.6,6.2,7.4,100.0,Mixed Strategy,1,2,2,1,2,1.6,4,3,3,4,3.5,80.2,Good
+R071,21,1,Information Technology,9.5,6.4,3.2,100.0,Mixed Strategy,3,3,3,3,4,3.2,5,2,3,3,3.25,82.4,Good
+R072,20,4,Computer Engineering,7.4,6.4,8.6,94.1,Mixed Strategy,2,2,2,2,2,2.0,4,5,5,4,4.5,75.6,Satisfactory
+R073,21,3,Information Technology,4.3,7.2,5.0,98.7,Cramming,1,1,1,2,2,1.4,3,2,3,2,2.5,78.8,Satisfactory
+R074,20,1,Computer Engineering,8.6,3.8,5.7,87.8,Mixed Strategy,1,2,2,3,2,2.0,5,4,5,4,4.5,69.3,Needs Improvement
+R075,19,4,Computer Engineering,5.9,6.9,6.5,100.0,Mixed Strategy,3,3,2,2,3,2.6,3,4,4,4,3.75,80.8,Good
+R076,21,1,Mechanical Engineering,21.1,6.4,5.2,89.2,Mixed Strategy,4,5,4,5,5,4.6,2,1,3,1,1.75,83.8,Good
+R077,22,3,Information Technology,18.1,6.2,6.4,90.9,Spaced Practice,4,4,3,4,4,3.8,2,3,3,3,2.75,91.0,Excellent
+R078,24,2,Mechanical Engineering,5.0,4.8,2.8,79.0,Spaced Practice,2,2,3,3,2,2.4,3,3,3,4,3.25,72.5,Needs Improvement
+R079,22,1,Computer Engineering,13.5,6.8,4.2,93.5,Cramming,4,3,4,3,3,3.4,3,3,3,2,2.75,83.0,Good
+R080,18,2,Education,11.6,6.3,5.2,84.0,Mixed Strategy,4,3,3,3,4,3.4,3,3,2,4,3.0,85.1,Very Good
+R081,21,3,Business Administration,14.0,6.6,4.2,84.6,Group Study,3,3,4,4,4,3.6,4,2,3,1,2.5,75.1,Satisfactory
+R082,22,2,Business Administration,2.8,7.6,9.0,94.1,Cramming,2,2,2,1,1,1.6,2,3,3,3,2.75,74.0,Needs Improvement
+R083,21,1,Education,11.2,7.5,3.1,81.3,Spaced Practice,3,3,3,3,2,2.8,1,1,2,2,1.5,75.8,Satisfactory
+R084,20,2,Information Technology,13.0,7.2,2.1,84.0,Mixed Strategy,4,3,3,3,3,3.2,2,2,1,3,2.0,86.7,Very Good
+R085,20,1,Computer Engineering,9.5,6.8,3.2,87.3,Mixed Strategy,4,4,3,2,2,3.0,3,4,4,4,3.75,68.4,Needs Improvement
+R086,20,3,Information Technology,17.5,6.5,4.8,83.2,Spaced Practice,4,5,5,5,5,4.8,3,3,3,4,3.25,87.2,Very Good
+R087,21,4,Computer Engineering,12.7,6.5,4.2,84.8,Spaced Practice,3,4,2,2,3,2.8,4,3,2,4,3.25,68.9,Needs Improvement
+R088,23,2,Business Administration,10.9,6.3,5.0,90.8,Mixed Strategy,4,4,4,5,4,4.2,4,3,4,3,3.5,80.8,Good
+R089,20,4,Business Administration,15.3,6.3,5.8,87.4,Spaced Practice,3,2,3,2,3,2.6,2,2,2,2,2.0,83.8,Good
+R090,22,1,Information Technology,4.5,6.7,7.3,88.3,Spaced Practice,1,2,2,2,2,1.8,3,3,3,3,3.0,84.0,Good
+R091,23,2,Mechanical Engineering,7.4,6.6,6.3,96.0,Spaced Practice,3,3,3,3,2,2.8,3,4,3,3,3.25,84.6,Good
+R092,22,1,Computer Engineering,8.8,5.9,6.5,96.7,Spaced Practice,1,2,2,2,2,1.8,3,4,4,2,3.25,93.0,Excellent
+R093,25,4,Computer Engineering,9.4,8.0,7.2,91.6,Spaced Practice,3,2,1,2,3,2.2,2,2,3,3,2.5,87.6,Very Good
+R094,23,2,Education,7.1,7.8,5.1,91.0,Group Study,3,3,3,3,3,3.0,2,2,4,3,2.75,78.9,Satisfactory
+R095,21,4,Computer Engineering,11.9,7.7,5.1,92.1,Mixed Strategy,4,3,4,3,3,3.4,2,2,3,3,2.5,88.8,Very Good
+R096,20,4,Information Technology,7.4,6.6,6.4,81.3,Mixed Strategy,3,3,3,3,3,3.0,3,4,4,2,3.25,80.9,Good
+R097,19,1,Information Technology,17.2,6.2,5.7,96.9,Mixed Strategy,4,4,4,4,4,4.0,3,3,2,4,3.0,83.3,Good
+R098,20,2,Computer Engineering,15.4,5.8,4.6,77.3,Mixed Strategy,4,4,4,4,5,4.2,2,3,3,4,3.0,75.1,Satisfactory
+R099,21,4,Mechanical Engineering,19.0,6.8,5.3,83.5,Mixed Strategy,4,4,5,5,4,4.4,2,3,3,4,3.0,84.6,Good
+R100,23,3,Information Technology,6.3,6.0,3.9,95.1,Mixed Strategy,2,2,2,3,4,2.6,4,4,3,3,3.5,74.6,Needs Improvement
+R101,21,2,Computer Engineering,9.3,7.1,7.0,92.6,Spaced Practice,2,2,3,2,2,2.2,3,4,4,3,3.5,78.2,Satisfactory
+R102,21,4,Mechanical Engineering,14.6,7.2,4.7,100.0,Mixed Strategy,3,4,4,4,3,3.6,3,1,3,1,2.0,87.6,Very Good
+R103,20,1,Computer Engineering,5.7,6.1,7.0,92.9,Group Study,3,2,2,2,2,2.2,3,3,5,2,3.25,65.5,Needs Improvement
+R104,24,3,Mechanical Engineering,5.8,6.0,4.9,76.5,Mixed Strategy,3,2,2,2,2,2.2,2,3,1,2,2.0,84.4,Good
+R105,22,1,Information Technology,8.9,4.5,4.3,91.3,Group Study,3,2,3,4,1,2.6,1,2,3,2,2.0,88.2,Very Good
+R106,19,3,Education,17.6,7.6,6.0,82.2,Cramming,4,5,5,4,4,4.4,5,4,4,5,4.5,72.8,Needs Improvement
+R107,18,1,Business Administration,8.0,7.2,5.6,86.8,Group Study,3,3,3,3,4,3.2,5,3,4,3,3.75,67.3,Needs Improvement
+R108,19,2,Mechanical Engineering,11.6,7.6,7.4,100.0,Mixed Strategy,4,4,4,3,2,3.4,3,4,5,3,3.75,76.0,Satisfactory
+R109,19,2,Business Administration,5.8,7.1,5.3,84.4,Spaced Practice,1,1,1,2,1,1.2,4,4,4,4,4.0,80.9,Good
+R110,18,4,Mechanical Engineering,9.2,6.6,2.7,84.4,Mixed Strategy,3,2,3,3,3,2.8,2,1,1,2,1.5,82.6,Good
+R111,20,3,Information Technology,15.7,6.7,3.7,83.6,Group Study,4,4,4,4,4,4.0,5,5,3,4,4.25,78.3,Satisfactory
+R112,19,2,Mechanical Engineering,15.7,5.8,5.6,82.2,Spaced Practice,5,5,5,5,4,4.8,3,3,2,4,3.0,80.3,Good
+R113,22,4,Information Technology,9.7,6.8,3.9,100.0,Cramming,3,3,3,3,3,3.0,3,3,2,2,2.5,76.8,Satisfactory
+R114,21,2,Mechanical Engineering,12.9,6.8,5.2,84.8,Group Study,3,4,3,2,3,3.0,5,4,5,5,4.75,87.1,Very Good
+R115,22,1,Information Technology,11.7,6.2,5.2,78.0,Cramming,3,4,4,5,5,4.2,5,5,5,4,4.75,75.9,Satisfactory
+R116,21,3,Computer Engineering,5.9,7.2,5.5,84.4,Spaced Practice,2,2,2,2,2,2.0,4,4,3,4,3.75,79.9,Satisfactory
+R117,20,1,Information Technology,4.2,5.9,3.2,76.8,Spaced Practice,2,1,2,1,2,1.6,3,2,3,3,2.75,82.9,Good
+R118,21,4,Information Technology,13.2,7.5,3.2,77.2,Mixed Strategy,4,4,3,3,4,3.6,3,1,3,3,2.5,81.0,Good
+R119,18,1,Information Technology,7.7,6.5,7.8,94.8,Cramming,3,3,2,2,3,2.6,3,2,2,4,2.75,72.3,Needs Improvement
+R120,19,1,Information Technology,4.4,7.2,2.9,82.9,Spaced Practice,2,3,3,2,1,2.2,2,2,3,2,2.25,87.6,Very Good
+R121,21,3,Education,18.0,8.8,5.3,84.0,Cramming,5,4,5,4,4,4.4,3,2,2,1,2.0,80.6,Good
+R122,18,1,Information Technology,5.9,5.2,8.3,90.5,Mixed Strategy,3,3,3,2,3,2.8,4,5,2,4,3.75,80.7,Good
+R123,24,3,Information Technology,9.3,5.9,5.7,79.7,Mixed Strategy,3,3,2,3,3,2.8,4,4,4,3,3.75,78.3,Satisfactory
+R124,23,1,Computer Engineering,8.3,6.2,7.2,98.7,Group Study,2,2,1,2,2,1.8,3,2,3,3,2.75,78.1,Satisfactory
+R125,19,1,Computer Engineering,21.1,6.6,4.1,91.6,Group Study,4,4,5,5,5,4.6,3,4,1,2,2.5,85.1,Very Good
+R126,18,3,Business Administration,9.9,5.7,5.7,75.7,Cramming,2,3,2,3,2,2.4,4,2,4,2,3.0,72.5,Needs Improvement
+R127,22,3,Education,9.9,7.5,6.6,84.3,Group Study,2,3,2,4,3,2.8,3,3,3,2,2.75,82.7,Good
+R128,23,3,Computer Engineering,10.5,7.3,1.7,86.4,Group Study,3,3,3,3,3,3.0,1,1,2,1,1.25,83.6,Good
+R129,20,3,Mechanical Engineering,8.4,5.0,5.3,86.2,Spaced Practice,3,3,3,4,3,3.2,4,2,3,4,3.25,68.3,Needs Improvement
+R130,22,4,Computer Engineering,10.9,5.4,5.1,62.1,Mixed Strategy,4,3,3,3,2,3.0,2,3,2,2,2.25,73.8,Needs Improvement
+R131,22,4,Information Technology,7.9,6.4,4.9,85.9,Mixed Strategy,2,2,2,3,2,2.2,2,4,3,2,2.75,76.8,Satisfactory
+R132,18,1,Mechanical Engineering,8.3,6.1,8.1,77.3,Cramming,3,5,4,3,4,3.8,2,3,2,2,2.25,71.6,Needs Improvement
+R133,21,2,Computer Engineering,10.0,7.4,4.1,98.4,Cramming,3,4,4,3,4,3.6,3,2,3,2,2.5,80.3,Good
+R134,22,3,Mechanical Engineering,12.1,6.1,4.2,80.0,Mixed Strategy,2,3,2,4,2,2.6,1,4,2,3,2.5,85.6,Very Good
+R135,18,1,Education,7.2,5.8,3.7,73.9,Spaced Practice,3,2,2,2,1,2.0,3,3,2,2,2.5,73.0,Needs Improvement
+R136,22,4,Mechanical Engineering,8.8,8.0,4.2,87.2,Cramming,3,3,2,2,3,2.6,1,3,3,2,2.25,79.8,Satisfactory
+R137,22,3,Mechanical Engineering,12.3,5.3,4.2,82.3,Spaced Practice,3,4,4,3,4,3.6,3,2,2,3,2.5,84.6,Good
+R138,20,3,Education,8.4,7.9,1.0,94.6,Mixed Strategy,2,2,1,2,3,2.0,3,3,3,3,3.0,80.2,Good
+R139,20,1,Business Administration,15.3,7.9,4.4,86.4,Spaced Practice,3,3,4,3,2,3.0,2,3,2,2,2.25,75.3,Satisfactory
+R140,21,4,Computer Engineering,9.3,6.5,6.1,88.0,Spaced Practice,3,3,4,3,4,3.4,4,3,3,2,3.0,81.3,Good
+R141,21,1,Information Technology,14.7,5.8,3.5,85.3,Group Study,3,3,4,3,3,3.2,3,2,2,1,2.0,86.3,Very Good
+R142,22,4,Business Administration,14.4,6.1,4.5,78.7,Spaced Practice,4,3,4,4,4,3.8,4,3,3,4,3.5,72.0,Needs Improvement
+R143,25,4,Computer Engineering,8.8,5.7,1.7,96.3,Mixed Strategy,3,3,3,3,4,3.2,2,3,3,2,2.5,72.8,Needs Improvement
+R144,21,1,Computer Engineering,16.9,5.6,7.4,83.6,Spaced Practice,4,3,5,4,4,4.0,5,2,4,3,3.5,85.7,Very Good
+R145,24,4,Education,8.4,6.6,6.6,86.3,Spaced Practice,3,2,2,2,1,2.0,5,3,4,3,3.75,80.8,Good
+R146,22,1,Information Technology,6.5,7.5,8.4,94.2,Cramming,2,2,2,3,2,2.2,3,4,4,5,4.0,69.4,Needs Improvement
+R147,20,1,Information Technology,14.3,6.3,6.4,98.3,Mixed Strategy,3,3,2,4,2,2.8,3,4,4,2,3.25,81.7,Good
+R148,20,1,Mechanical Engineering,5.1,6.4,5.2,70.8,Cramming,2,2,2,3,1,2.0,1,4,4,1,2.5,71.1,Needs Improvement
+R149,23,1,Education,21.5,7.5,3.2,92.8,Group Study,4,5,5,5,4,4.6,3,2,4,2,2.75,93.7,Excellent
+R150,23,4,Business Administration,9.2,5.5,7.6,96.3,Spaced Practice,4,2,3,3,4,3.2,2,3,3,4,3.0,78.8,Satisfactory
+R151,19,3,Information Technology,10.1,7.2,4.2,96.8,Spaced Practice,2,3,3,3,3,2.8,3,3,3,3,3.0,82.8,Good
+R152,18,1,Business Administration,8.6,6.8,2.7,85.4,Mixed Strategy,3,3,4,3,3,3.2,2,1,3,1,1.75,83.5,Good
+R153,25,3,Business Administration,16.5,7.0,6.2,97.5,Spaced Practice,4,4,5,4,5,4.4,4,4,5,3,4.0,82.4,Good
+R154,18,4,Information Technology,8.3,5.7,4.2,100.0,Mixed Strategy,3,3,4,3,3,3.2,4,3,4,4,3.75,85.8,Very Good
+R155,23,3,Mechanical Engineering,10.5,7.3,3.2,84.6,Cramming,3,3,4,3,4,3.4,4,4,4,5,4.25,71.6,Needs Improvement
+R156,22,3,Information Technology,7.0,7.0,4.6,100.0,Cramming,3,3,3,4,4,3.4,3,3,4,3,3.25,82.5,Good
+R157,21,3,Computer Engineering,6.2,6.7,5.4,90.8,Spaced Practice,3,3,3,3,3,3.0,3,3,4,4,3.5,76.2,Satisfactory
+R158,22,3,Computer Engineering,22.1,6.9,4.7,81.4,Cramming,4,5,5,5,5,4.8,2,2,2,3,2.25,87.8,Very Good
+R159,21,2,Business Administration,29.2,6.2,7.6,79.2,Mixed Strategy,5,5,5,5,5,5.0,3,3,3,4,3.25,94.1,Excellent
+R160,20,3,Information Technology,9.9,7.7,5.7,89.7,Group Study,3,5,3,4,3,3.6,4,4,3,4,3.75,83.4,Good

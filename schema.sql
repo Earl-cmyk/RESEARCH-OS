@@ -92,6 +92,21 @@ CREATE TABLE IF NOT EXISTS statistical_analyses (
 CREATE INDEX IF NOT EXISTS idx_analyses_project_created
     ON statistical_analyses(project_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS framework_boards (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES research_projects(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    framework_type TEXT NOT NULL CHECK (framework_type IN ('theoretical', 'conceptual')),
+    study_text TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    manuscript_section TEXT NOT NULL DEFAULT '',
+    diagram_data TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_framework_boards_project_updated
+    ON framework_boards(project_id, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS writing_analyses (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

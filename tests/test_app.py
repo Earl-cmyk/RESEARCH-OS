@@ -78,6 +78,17 @@ class ResearchOsApiTests(unittest.TestCase):
         self.assertEqual([section["title"] for section in documents[0]["content"]["sections"]],
                          [f"Chapter {number}" for number in range(1, 6)])
 
+    def test_multiple_projects_are_kept_separate(self):
+        self.register()
+        first = self.create_project("First research project")
+        second = self.create_project("Second research project")
+        response = self.client.get("/api/projects")
+        projects = response.get_json()["projects"]
+        self.assertEqual({project["id"] for project in projects}, {first["id"], second["id"]})
+        first_document = self.client.get(f"/api/projects/{first['id']}/documents").get_json()["documents"][0]
+        second_document = self.client.get(f"/api/projects/{second['id']}/documents").get_json()["documents"][0]
+        self.assertNotEqual(first_document["id"], second_document["id"])
+
     def test_project_can_be_updated_and_update_is_private(self):
         self.register()
         project = self.create_project()
@@ -177,13 +188,176 @@ class ResearchOsApiTests(unittest.TestCase):
         self.assertEqual(result["sources"][0]["key"], "S1")
         self.assertIn("Learning outcomes in higher education", result["sources"][0]["citation"])
         self.assertEqual(ask_json.call_count, 1)
-
         with patch("app.ask_json", return_value={"synthesis": "Unsupported [S2].", "themes": []}):
             invalid_citation = self.client.post(
                 f"/api/projects/{project['id']}/literature/synthesize", json={},
             )
         self.assertEqual(invalid_citation.status_code, 502)
         self.assertEqual(invalid_citation.get_json()["error"]["code"], "invalid_ai_citation")
+
+    def test_framework_maker_generates_valid_project_scoped_output(self):
+        self.register()
+        project = self.create_project()
+        generated = {
+            "title": "Conceptual Framework",
+            "overview": "A study-grounded model.",
+            "theoretical_basis": "",
+            "constructs": [{"name": "Study habits", "role": "Predictor", "description": "Time allocated to study."}],
+            "relationships": [{"from": "Study habits", "to": "Academic performance", "description": "Proposed association."}],
+            "diagram": "Study habits -> Academic performance",
+            "manuscript_section": "This study proposes a relationship between study habits and academic performance.",
+            "limitations": ["The model does not establish causality."],
+        }
+        with patch("app.ask_json", return_value=generated) as ask_json:
+            response = self.client.post(
+                f"/api/projects/{project['id']}/framework",
+                json={
+                    "framework_type": "conceptual",
+                    "study": "A study of study habits and academic performance.",
+                    "description": "Show study habits connected to performance.",
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()["constructs"][0]["name"], "Study habits")
+        self.assertIn("Do not invent findings", ask_json.call_args.args[0])
+        with app.app_context():
+            history = get_db().execute(
+                "SELECT feature_type FROM ai_generation_history WHERE user_id = ?",
+                (self.client.get("/api/auth/me").get_json()["user"]["id"],),
+            ).fetchone()
+        self.assertEqual(history["feature_type"], "framework_maker")
+        theoretical_output = {**generated, "theoretical_basis": "Candidate theory requiring researcher verification."}
+        with patch("app.ask_json", return_value=theoretical_output) as theoretical_request:
+            theoretical = self.client.post(
+                f"/api/projects/{project['id']}/framework",
+                json={"framework_type": "theoretical", "study": "A study with no named theory."},
+            )
+        self.assertEqual(theoretical.status_code, 200, theoretical.get_json())
+        self.assertEqual(theoretical.get_json()["framework_type"], "theoretical")
+        self.assertIn("candidate theory", theoretical_request.call_args.args[0])
+
+    def test_framework_maker_rejects_invalid_input_and_malformed_ai_output(self):
+        self.register()
+        project = self.create_project()
+        invalid = self.client.post(
+            f"/api/projects/{project['id']}/framework",
+            json={"framework_type": "other", "study": "A study."},
+        )
+        self.assertEqual(invalid.status_code, 400)
+        invalid_type = self.client.post(
+            f"/api/projects/{project['id']}/framework",
+            json={"framework_type": [], "study": "A study."},
+        )
+        self.assertEqual(invalid_type.status_code, 400)
+        with patch("app.ask_json", return_value={"title": "Incomplete"}):
+            malformed = self.client.post(
+                f"/api/projects/{project['id']}/framework",
+                json={"framework_type": "theoretical", "study": "A study."},
+            )
+        self.assertEqual(malformed.status_code, 502)
+        self.assertEqual(malformed.get_json()["error"]["code"], "invalid_ai_response")
+
+    def test_framework_boards_can_be_saved_updated_listed_and_deleted_per_project(self):
+        self.register()
+        project = self.create_project()
+        board = {
+            "title": "Learning model",
+            "framework_type": "conceptual",
+            "study": "Study habits and performance.",
+            "description": "Show a direct relationship.",
+            "manuscript_section": "Study habits may be associated with performance.",
+            "diagram": {
+                "nodes": [
+                    {"id": "study", "kind": "rectangle", "label": "Study habits", "body": "Predictor",
+                     "x": 100, "y": 120, "width": 240, "height": 120, "fill": "#ffffff", "color": "#30242a"},
+                    {"id": "outcome", "kind": "ellipse", "label": "Performance", "body": "Outcome",
+                     "x": 500, "y": 120, "width": 240, "height": 120, "fill": "#fde9ee", "color": "#30242a"},
+                ],
+                "edges": [{"id": "link", "from": "study", "to": "outcome", "label": "Proposed association"}],
+            },
+        }
+        created = self.client.post(
+            f"/api/projects/{project['id']}/frameworks",
+            json=board,
+            headers=self.write_headers(),
+        )
+        self.assertEqual(created.status_code, 201, created.get_json())
+        saved = created.get_json()["board"]
+        self.assertEqual(saved["diagram"]["edges"][0]["from"], "study")
+        self.assertEqual(saved["manuscript_section"], board["manuscript_section"])
+        listed = self.client.get(f"/api/projects/{project['id']}/frameworks")
+        self.assertEqual(listed.get_json()["boards"][0]["id"], saved["id"])
+        board["title"] = "Updated learning model"
+        board["diagram"]["nodes"][0]["label"] = "Study routine"
+        board["manuscript_section"] = "Updated draft."
+        updated = self.client.put(
+            f"/api/frameworks/{saved['id']}",
+            json=board,
+            headers=self.write_headers(),
+        )
+        self.assertEqual(updated.status_code, 200, updated.get_json())
+        self.assertEqual(updated.get_json()["board"]["title"], "Updated learning model")
+        self.assertEqual(updated.get_json()["board"]["diagram"]["nodes"][0]["label"], "Study routine")
+        self.assertEqual(updated.get_json()["board"]["manuscript_section"], "Updated draft.")
+        removed = self.client.delete(f"/api/frameworks/{saved['id']}", headers=self.write_headers())
+        self.assertEqual(removed.status_code, 200)
+        self.assertEqual(self.client.get(f"/api/projects/{project['id']}/frameworks").get_json()["boards"], [])
+
+    def test_framework_boards_reject_invalid_geometry_edges_and_foreign_access(self):
+        self.register()
+        project = self.create_project()
+        invalid = {
+            "title": "Invalid board",
+            "framework_type": "conceptual",
+            "diagram": {
+                "nodes": [{"id": "one", "kind": "rectangle", "label": "One", "body": "",
+                           "x": -1, "y": 0, "width": 240, "height": 120, "fill": "#ffffff", "color": "#30242a"}],
+                "edges": [],
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{project['id']}/frameworks",
+            json=invalid,
+            headers=self.write_headers(),
+        )
+        self.assertEqual(response.status_code, 400)
+        invalid["diagram"]["nodes"][0]["kind"] = []
+        invalid["diagram"]["nodes"][0]["x"] = 0
+        response = self.client.post(
+            f"/api/projects/{project['id']}/frameworks",
+            json=invalid,
+            headers=self.write_headers(),
+        )
+        self.assertEqual(response.status_code, 400)
+        invalid["diagram"]["nodes"][0]["x"] = 0
+        invalid["diagram"]["nodes"][0]["kind"] = "rectangle"
+        invalid["diagram"]["edges"] = [{"id": "bad", "from": "one", "to": "missing", "label": ""}]
+        response = self.client.post(
+            f"/api/projects/{project['id']}/frameworks",
+            json=invalid,
+            headers=self.write_headers(),
+        )
+        self.assertEqual(response.status_code, 400)
+
+        valid = {
+            "title": "Private board", "framework_type": "theoretical",
+            "diagram": {
+                "nodes": [{"id": "one", "kind": "text", "label": "Theory", "body": "",
+                           "x": 0, "y": 0, "width": 240, "height": 100, "fill": "#ffffff", "color": "#30242a"}],
+                "edges": [],
+            },
+        }
+        saved = self.client.post(
+            f"/api/projects/{project['id']}/frameworks",
+            json=valid,
+            headers=self.write_headers(),
+        ).get_json()["board"]
+        self.client.post("/api/auth/logout", json={}, headers=self.write_headers())
+        self.register("another@example.org")
+        self.assertEqual(self.client.get(f"/api/projects/{project['id']}/frameworks").status_code, 404)
+        self.assertEqual(self.client.put(
+            f"/api/frameworks/{saved['id']}", json=valid, headers=self.write_headers(),
+        ).status_code, 404)
 
     def test_reference_import_supports_ris_and_bibtex_and_skips_duplicates(self):
         self.register()
@@ -285,6 +459,7 @@ class ResearchOsApiTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"Research OS", page.data)
         self.assertIn(b"Manuscript Editor", page.data)
+        self.assertIn(b"Frameworkshop", page.data)
         script = self.client.get("/static/app.js")
         self.assertEqual(script.status_code, 200)
         self.assertIn(b"renderToken", script.data)
