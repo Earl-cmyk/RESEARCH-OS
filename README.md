@@ -105,7 +105,7 @@ Project/data write operations require the signed-in session and the `X-CSRF-Toke
 
 ## Current functionality and boundaries
 
-- Account registration/login, password hashing, private project ownership, CSRF checks on writes, and same-origin API requests are implemented for the local single-user-per-project workflow.
+- Account registration/login, password hashing, private project ownership, CSRF checks on writes, and same-origin API requests are implemented. Each account can create and switch between multiple independent manuscripts from the dashboard or My Research.
 - Basic request throttling is in-process for login, AI, and scholarly search endpoints. It is a development safeguard, not a substitute for shared rate limiting behind a multi-worker production deployment.
 - Project manuscripts use debounced autosave and immutable prior snapshots. The Manuscript Editor includes collapsible sections, basic rich-text formatting, links, tables, local image insertion, version previews/restoration, DOCX/PDF export, and basic completeness checks; validation is not an academic approval. Rich content in exports is currently linearized to readable text rather than preserving all editor styling. Project title, field, type, institution, and status can be updated from My Research. Accounts can create and switch between multiple independent projects.
 - Literature results come from Crossref. The app does not invent source metadata; provider records are stored with their source URLs and verification indicator.

@@ -259,17 +259,17 @@ async function renderView(view) {
 }
 
 function renderNoProject() {
-  return `<div class="welcome"><div><p class="eyebrow">START HERE</p><h2>Make room for your next research idea.</h2><p>Create a project to organize your manuscript, literature, and research materials.</p></div></div>
-    <div class="panel" style="margin-top:16px"><h2>Create a research project</h2>${projectForm()}</div>`;
+  return `<div class="welcome"><div><p class="eyebrow">START HERE</p><h2>Make room for your next research idea.</h2><p>Create a manuscript to organize your writing, literature, and research materials.</p></div></div>
+    <div class="panel" style="margin-top:16px"><h2>Create your first manuscript</h2>${projectForm()}</div>`;
 }
 
 function projectForm() {
   return `<form id="project-form" class="form-grid">
-    <label class="full">Project title<input name="title" maxlength="240" required placeholder="e.g. Student experiences with…"></label>
+    <label class="full">Manuscript title<input name="title" maxlength="240" required placeholder="e.g. Student experiences with…"></label>
     <label>Research field<input name="field" maxlength="160" placeholder="Education, public health…"></label>
     <label>Research type<select name="research_type"><option>Quantitative</option><option>Qualitative</option><option selected>Mixed Methods</option><option>Experimental</option><option>Descriptive</option></select></label>
     <label class="full">Institution<input name="institution" maxlength="200" placeholder="Optional"></label>
-    <div class="full"><button class="button primary" type="submit">Create project</button></div>
+    <div class="full"><button class="button primary" type="submit">Create manuscript</button></div>
   </form>`;
 }
 
@@ -284,6 +284,13 @@ function renderDashboard() {
       <div class="metric"><span>Saved scholarly sources</span><strong>${state.sources.length}</strong></div>
       <div class="metric"><span>Appendix files</span><strong>${state.appendices.length}</strong></div>
     </div>
+    <div class="section-heading"><h2>Your manuscripts (${state.projects.length})</h2><button class="button small" data-go="projects">Manage details</button></div>
+    <div class="card-grid">${state.projects.map((item) => `<article class="card project-card">
+      <div><p class="eyebrow">${escapeHtml(item.research_type)} · ${escapeHtml(item.research_status)}${item.id === project.id ? " · CURRENT" : ""}</p><h3>${escapeHtml(item.project_title)}</h3>
+      <p class="muted">${escapeHtml(item.research_field || "Research field not set")} · ${escapeHtml(item.institution || "Institution not set")}</p></div>
+      <div class="card-footer"><span class="small-label">${Number(item.document_count) || 0} manuscript document${Number(item.document_count) === 1 ? "" : "s"}</span>
+      <button class="button small" type="button" data-open-project="${escapeHtml(item.id)}">${item.id === project.id ? "Open current" : "Open manuscript"}</button></div>
+    </article>`).join("")}</div>
     <div class="panel manuscript-launch"><div><p class="eyebrow">YOUR RESEARCH DOCUMENT</p><h2>Write and format your manuscript</h2><p class="muted">Open the full-page editor to work on sections, insert tables or images, and export your paper.</p></div><button class="button primary" data-go="builder">Open Manuscript Editor →</button></div>
     <div class="section-heading"><h2>Material included in your manuscript export</h2></div>
     <div class="card-grid">
@@ -303,7 +310,8 @@ function renderDashboard() {
       ${toolCard("Frameworkshop", "Build and edit a theory-grounded or conceptual framework on a whiteboard.", "framework", "Open Frameworkshop")}
       ${toolCard("Statistical Lab", "Run deterministic descriptive and inferential calculations with assumptions.", "statistics", "Open statistical tools")}
       ${toolCard("APA References", "Review a generated reference list and build in-text citations.", "references", "Manage references")}
-    </div>`;
+    </div>
+    <div class="panel" style="margin-top:20px"><h2>Create another manuscript</h2><p class="muted">Each manuscript has its own writing, sources, appendices, and research materials.</p>${projectForm()}</div>`;
 }
 
 function cleanEditorText(value) {
@@ -414,9 +422,9 @@ function renderProjects() {
       <button class="button small" data-open-project="${escapeHtml(project.id)}">Open project</button>
       <button class="button small danger" data-delete-project="${escapeHtml(project.id)}">Delete</button>
     </div></div></article>`).join("");
-  return `<div class="section-heading"><h2>Your research projects</h2></div>
+  return `<div class="section-heading"><h2>Your manuscripts</h2></div>
     ${state.projects.length ? `<div class="card-grid">${cards}</div>` : '<div class="empty-state">No projects yet. Create one to begin.</div>'}
-    <div class="panel" style="margin-top:20px"><h2>Create a project</h2>${projectForm()}</div>`;
+    <div class="panel" style="margin-top:20px"><h2>Create a manuscript</h2>${projectForm()}</div>`;
 }
 
 function renderDocumentHistory(versions) {
@@ -773,11 +781,12 @@ async function updateProject(event) {
 
 function bindView(view) {
   bindFilePickers(viewRoot);
+  bindProjectForm();
   viewRoot.querySelectorAll("[data-go]").forEach((button) => button.addEventListener("click", () => {
     if (viewTitles[button.dataset.go]) renderView(button.dataset.go);
   }));
+  viewRoot.querySelectorAll("[data-open-project]").forEach((button) => button.addEventListener("click", () => setProject(button.dataset.openProject, "dashboard")));
   if (view === "projects") {
-    bindProjectForm();
     viewRoot.querySelectorAll("[data-project-update]").forEach((form) => form.addEventListener("submit", updateProject));
     viewRoot.querySelectorAll("[data-edit-project]").forEach((button) => button.addEventListener("click", () => {
       const form = viewRoot.querySelector(`[data-project-update="${CSS.escape(button.dataset.editProject)}"]`);
@@ -789,7 +798,6 @@ function bindView(view) {
       form.hidden = true;
       viewRoot.querySelector(`[data-edit-project="${CSS.escape(form.dataset.projectUpdate)}"]`)?.setAttribute("aria-expanded", "false");
     }));
-    viewRoot.querySelectorAll("[data-open-project]").forEach((button) => button.addEventListener("click", () => setProject(button.dataset.openProject, "dashboard")));
     viewRoot.querySelectorAll("[data-delete-project]").forEach((button) => button.addEventListener("click", () => deleteProject(button.dataset.deleteProject)));
   }
   if (view === "writing") bindWriting();
