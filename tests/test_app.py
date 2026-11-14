@@ -1,0 +1,634 @@
+import io
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from openpyxl import Workbook
+
+import ai_service
+_test_storage = tempfile.TemporaryDirectory()
+os.environ["DATABASE_PATH"] = str(Path(_test_storage.name) / "bootstrap.sqlite3")
+os.environ["UPLOAD_FOLDER"] = str(Path(_test_storage.name) / "uploads")
+os.environ["SECRET_KEY"] = "test-only-secret-key"
+
+from app import (
+    PostgresConnection,
+    app,
+    calculate_statistic,
+    clean_export_text,
+    get_db,
+    init_db,
+    sanitize_rich_html,
+)  # noqa: E402
+
+
+def tearDownModule():
+    _test_storage.cleanup()
+
+
+class ResearchOsApiTests(unittest.TestCase):
+    def setUp(self):
+        self.storage = tempfile.TemporaryDirectory()
+        app.config.update(
+            TESTING=True,
+            DATABASE_PATH=str(Path(self.storage.name) / "test.sqlite3"),
+            UPLOAD_FOLDER=str(Path(self.storage.name) / "uploads"),
+            SECRET_KEY="test-only-secret-key",
+        )
+        with app.app_context():
+            init_db()
+        self.client = app.test_client()
+
+    def tearDown(self):
+        self.storage.cleanup()
+
+    def register(self, email="researcher@example.org"):
+        response = self.client.post(
+            "/api/auth/register",
+            json={"name": "Researcher", "email": email, "password": "secure-test-password"},
+        )
+        self.assertEqual(response.status_code, 201, response.get_json())
+        payload = response.get_json()
+        self.csrf = payload["csrf_token"]
+        return payload["user"]
+
+    def write_headers(self):
+        return {"X-CSRF-Token": self.csrf}
+
+    def create_project(self, title="Research project"):
+        response = self.client.post(
+            "/api/projects",
+            json={"title": title, "field": "Education", "research_type": "Qualitative"},
+            headers=self.write_headers(),
+        )
+        self.assertEqual(response.status_code, 201, response.get_json())
+        return response.get_json()["project"]
+
+    def test_authentication_and_project_creation_initialize_document(self):
+        user = self.register()
+        project = self.create_project()
+        self.assertEqual(project["user_id"], user["id"])
+        documents = self.client.get(f"/api/projects/{project['id']}/documents").get_json()["documents"]
+        self.assertEqual(len(documents), 1)
+        self.assertEqual([section["title"] for section in documents[0]["content"]["sections"]],
+                         [f"Chapter {number}" for number in range(1, 6)])
+
+    def test_project_documents_are_private_between_accounts(self):
+        self.register()
+        project = self.create_project()
+        self.client.post("/api/auth/logout", json={}, headers=self.write_headers())
+        self.register("another@example.org")
+        response = self.client.get(f"/api/projects/{project['id']}")
+        self.assertEqual(response.status_code, 404)
+
+    def test_autosave_tracks_previous_revision(self):
+        self.register()
+        project = self.create_project()
+        document = self.client.get(f"/api/projects/{project['id']}/documents").get_json()["documents"][0]
+        content = {"sections": [{"title": "Chapter 1", "content": "Updated manuscript."}]}
+        response = self.client.put(
+            f"/api/documents/{document['id']}/autosave",
+            json={"content": content, "version": 1},
+            headers=self.write_headers(),
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()["version"], 2)
+        versions = self.client.get(f"/api/documents/{document['id']}/versions").get_json()["versions"]
+        self.assertEqual([version["version_number"] for version in versions], [1])
+        unchanged = self.client.put(
+            f"/api/documents/{document['id']}/autosave",
+            json={"content": content, "version": 1},
+            headers=self.write_headers(),
+        )
+        self.assertEqual(unchanged.status_code, 200)
+        self.assertTrue(unchanged.get_json()["unchanged"])
+        self.assertEqual(unchanged.get_json()["version"], 2)
+        stale = self.client.put(
+            f"/api/documents/{document['id']}/autosave",
+            json={"content": {"sections": [{"title": "Overwritten", "content": "stale"}]}, "version": 1},
+            headers=self.write_headers(),
+        )
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(stale.get_json()["error"]["code"], "document_conflict")
+
+    def test_literature_synthesis_uses_only_saved_project_sources(self):
+        self.register()
+        project = self.create_project()
+        saved = self.client.post(
+            f"/api/projects/{project['id']}/sources",
+            json={
+                "title": "Learning outcomes in higher education",
+                "authors": [{"firstName": "A.", "lastName": "Researcher"}],
+                "publication_year": 2024,
+                "abstract": "This study reports measured learning outcomes.",
+            },
+            headers=self.write_headers(),
+        )
+        self.assertEqual(saved.status_code, 201, saved.get_json())
+        with patch("app.ask_json", return_value={
+            "synthesis": "The saved study reports learning outcomes [S1].",
+            "themes": ["Learning outcomes"],
+        }) as ask_json:
+            response = self.client.post(f"/api/projects/{project['id']}/literature/synthesize", json={})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        result = response.get_json()
+        self.assertEqual(result["synthesis"], "The saved study reports learning outcomes [S1].")
+        self.assertEqual(result["sources"][0]["key"], "S1")
+        self.assertIn("Learning outcomes in higher education", result["sources"][0]["citation"])
+        self.assertEqual(ask_json.call_count, 1)
+
+        with patch("app.ask_json", return_value={"synthesis": "Unsupported [S2].", "themes": []}):
+            invalid_citation = self.client.post(
+                f"/api/projects/{project['id']}/literature/synthesize", json={},
+            )
+        self.assertEqual(invalid_citation.status_code, 502)
+        self.assertEqual(invalid_citation.get_json()["error"]["code"], "invalid_ai_citation")
+
+    def test_reference_import_supports_ris_and_bibtex_and_skips_duplicates(self):
+        self.register()
+        project = self.create_project()
+        ris = (
+            "TY  - JOUR\n"
+            "TI  - A RIS reference\n"
+            "AU  - Researcher, Alex\n"
+            "PY  - 2022\n"
+            "JO  - Journal of Tests\n"
+            "DO  - 10.1000/ris-record\n"
+            "ER  -\n"
+        )
+        response = self.client.post(
+            f"/api/projects/{project['id']}/sources/import",
+            data={"file": (io.BytesIO(ris.encode()), "references.ris")},
+            headers=self.write_headers(),
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 201, response.get_json())
+        self.assertEqual(response.get_json()["imported"], 1)
+        saved = self.client.get(f"/api/projects/{project['id']}/sources").get_json()["sources"]
+        self.assertEqual(saved[0]["authors"][0], {"firstName": "Alex", "lastName": "Researcher"})
+        self.assertEqual(saved[0]["metadata_verified"], 0)
+
+        duplicate = self.client.post(
+            f"/api/projects/{project['id']}/sources/import",
+            data={"file": (io.BytesIO(ris.encode()), "references.ris")},
+            headers=self.write_headers(),
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(duplicate.status_code, 201)
+        self.assertEqual(duplicate.get_json()["skipped_duplicates"], 1)
+
+        bibtex = (
+            b"@article{nested, title={A {Nested} title}, "
+            b"author={Doe, Jane and Smith, John}, year={2023}, "
+            b"journal={A Journal}, abstract={Text {with} braces}, "
+            b"doi={10.1000/bib-record}, url={https://example.org/paper}}"
+        )
+        imported_bibtex = self.client.post(
+            f"/api/projects/{project['id']}/sources/import",
+            data={"file": (io.BytesIO(bibtex), "references.bib")},
+            headers=self.write_headers(),
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(imported_bibtex.status_code, 201, imported_bibtex.get_json())
+        sources = self.client.get(f"/api/projects/{project['id']}/sources").get_json()["sources"]
+        source = next(item for item in sources if item["title"] == "A {Nested} title")
+        self.assertEqual(source["title"], "A {Nested} title")
+        self.assertEqual(source["publication_year"], 2023)
+        self.assertEqual(len(source["authors"]), 2)
+
+    def test_rich_text_autosave_sanitizes_unsafe_markup_and_exports_readably(self):
+        self.register()
+        project = self.create_project()
+        document = self.client.get(f"/api/projects/{project['id']}/documents").get_json()["documents"][0]
+        unsafe_html = '<p style="color: red; background-image: url(javascript:alert(1))"><strong>Draft</strong><script>alert(1)</script><a href="javascript:alert(1)">link</a></p>'
+        response = self.client.put(
+            f"/api/documents/{document['id']}/autosave",
+            json={"content": {"sections": [{"title": "Chapter 1", "content": unsafe_html}]}, "version": 1},
+            headers=self.write_headers(),
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        saved = self.client.get(f"/api/projects/{project['id']}/documents").get_json()["documents"][0]
+        saved_html = saved["content"]["sections"][0]["content"]
+        self.assertNotIn("<script", saved_html)
+        self.assertNotIn("javascript:", saved_html)
+        self.assertIn("<strong>Draft</strong>", saved_html)
+        self.assertEqual(clean_export_text("<p><strong>Draft</strong></p><p>Second paragraph</p>"),
+                         "Draft\n\nSecond paragraph")
+        self.assertNotIn("background-image", sanitize_rich_html(unsafe_html))
+
+    def test_write_requests_require_csrf_token(self):
+        self.register()
+        response = self.client.post("/api/projects", json={"title": "No token"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_root_and_health_routes_serve_the_python_app(self):
+        page = self.client.get("/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"Research OS", page.data)
+        script = self.client.get("/static/app.js")
+        self.assertEqual(script.status_code, 200)
+        self.assertIn(b"renderToken", script.data)
+        script.close()
+        self.assertEqual(self.client.get("/api/health").get_json()["status"], "ok")
+
+    def test_postgres_connection_translates_parameters_and_defaults_to_ssl(self):
+        self.assertEqual(
+            PostgresConnection._postgres_placeholders("SELECT ?, '?' AS literal, \"?\" AS quoted"),
+            "SELECT %s, '?' AS literal, \"?\" AS quoted",
+        )
+        if app.config["DATABASE_URL"]:
+            self.skipTest("PostgreSQL connection test requires the local SQLite test configuration.")
+        with patch("app.psycopg.connect") as connect:
+            app.config["DATABASE_URL"] = "postgresql://db.example.org:5432/research"
+            try:
+                with app.app_context():
+                    connection = get_db()
+                    connection.execute("SELECT ? AS value", ("test",))
+                    connection.close()
+                self.assertEqual(connect.call_args.kwargs["sslmode"], "require")
+                self.assertIsNotNone(connect.call_args.kwargs["row_factory"])
+            finally:
+                app.config["DATABASE_URL"] = ""
+
+    def test_validation_does_not_mark_empty_chapters_ready(self):
+        self.register()
+        project = self.create_project()
+        response = self.client.post(
+            "/api/export/validate",
+            json={"project_id": project["id"]},
+            headers=self.write_headers(),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.get_json()["ready_for_researcher_review"])
+        self.assertEqual(len(response.get_json()["issues"]), 5)
+
+    def test_statistics_return_deterministic_values_and_reject_bad_data(self):
+        result = calculate_statistic({"method": "descriptive", "values": [10, 20, 30, 40]})
+        self.assertEqual(result["result"]["mean"], 25)
+        self.assertEqual(result["result"]["median"], 25)
+        self.assertEqual(result["result"]["sample_standard_deviation"], 12.909944)
+        with self.assertRaises(ValueError):
+            calculate_statistic({"method": "descriptive", "values": [1, float("nan")]})
+        with self.assertRaisesRegex(ValueError, "variation"):
+            calculate_statistic({"method": "pearson", "x": [1, 1, 1], "y": [2, 3, 4]})
+        with self.assertRaisesRegex(ValueError, "zero variance"):
+            calculate_statistic({"method": "independent_t", "group_a": [1, 1], "group_b": [2, 2]})
+        with self.assertRaisesRegex(ValueError, "distinct values"):
+            calculate_statistic({"method": "kruskal_wallis", "groups": [[1, 1], [1, 1]]})
+        with self.assertRaisesRegex(ValueError, "100,000"):
+            calculate_statistic({"method": "descriptive", "values": [1] * 100_001})
+
+    def test_statistics_catalog_lists_the_available_tests(self):
+        response = self.client.get("/api/statistics/catalog")
+        self.assertEqual(response.status_code, 200)
+        method_ids = {method["id"] for method in response.get_json()["methods"]}
+        self.assertTrue({
+            "spearman", "one_sample_t", "paired_t", "mann_whitney",
+            "one_way_anova", "chi_square",
+        }.issubset(method_ids))
+
+    def test_inferential_statistics_require_an_authenticated_session(self):
+        response = self.client.post(
+            "/api/statistics/calculate",
+            json={"method": "descriptive", "values": [1, 2, 3]},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_inferential_statistics_include_degrees_of_freedom_and_decision(self):
+        t_test = calculate_statistic({
+            "method": "independent_t",
+            "group_a": [1, 2, 3, 4],
+            "group_b": [7, 8, 9, 10],
+            "alpha": 0.05,
+        })
+        self.assertAlmostEqual(t_test["result"]["degrees_of_freedom"], 6)
+        self.assertIn(t_test["result"]["decision"], {
+            "Reject the null hypothesis", "Fail to reject the null hypothesis",
+        })
+        kruskal = calculate_statistic({
+            "method": "kruskal_wallis",
+            "groups": [[1, 2, 2], [4, 5, 6], [7, 8, 9]],
+        })
+        self.assertEqual(kruskal["result"]["degrees_of_freedom"], 2)
+        self.assertTrue(0 <= kruskal["result"]["p_value"] <= 1)
+
+    def test_expanded_inferential_statistics_return_valid_results(self):
+        cases = [
+            ({
+                "method": "one_sample_t", "values": [2, 4, 6, 8], "population_mean": 0,
+            }, "degrees_of_freedom"),
+            ({
+                "method": "paired_t", "x": [2, 4, 5, 8], "y": [1, 2, 2, 5],
+            }, "mean_difference"),
+            ({
+                "method": "spearman", "x": [1, 2, 3, 4, 5], "y": [2, 4, 3, 8, 10],
+            }, "rho"),
+            ({
+                "method": "mann_whitney", "group_a": [1, 2, 3, 4], "group_b": [7, 8, 9, 10],
+            }, "u_statistic"),
+            ({
+                "method": "one_way_anova", "groups": [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
+            }, "f_statistic"),
+            ({
+                "method": "chi_square", "observed": [[10, 20], [20, 10]],
+            }, "chi_square"),
+        ]
+        for payload, expected_key in cases:
+            with self.subTest(method=payload["method"]):
+                result = calculate_statistic(payload)
+                self.assertIn(expected_key, result["result"])
+                self.assertTrue(0 <= result["result"]["p_value"] <= 1)
+                self.assertIn(result["result"]["decision"], {
+                    "Reject the null hypothesis", "Fail to reject the null hypothesis",
+                })
+        chi_square = calculate_statistic({"method": "chi_square", "observed": [[10, 20], [20, 10]]})
+        self.assertTrue(chi_square["result"]["yates_correction_applied"])
+
+    def test_expanded_statistics_reject_invalid_paired_and_contingency_data(self):
+        with self.assertRaisesRegex(ValueError, "same number"):
+            calculate_statistic({"method": "paired_t", "x": [1, 2], "y": [1, 2, 3]})
+        with self.assertRaisesRegex(ValueError, "variation"):
+            calculate_statistic({"method": "spearman", "x": [1, 1, 1], "y": [2, 3, 4]})
+        with self.assertRaisesRegex(ValueError, "negative"):
+            calculate_statistic({"method": "chi_square", "observed": [[1, -1], [2, 3]]})
+        with self.assertRaisesRegex(ValueError, "same number"):
+            calculate_statistic({"method": "paired_t", "x": [1, 2], "y": [1]})
+
+    def test_statistics_csv_import_supports_delimiters_and_requires_authentication(self):
+        unauthenticated = self.client.post(
+            "/api/statistics/import",
+            data={"file": (io.BytesIO(b"value;group\n1;A\n2;B\n"), "scores.csv")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(unauthenticated.status_code, 401)
+        self.register()
+        response = self.client.post(
+            "/api/statistics/import",
+            data={"file": (io.BytesIO(b"value;group\n1;A\n2;B\n"), "scores.csv")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        payload = response.get_json()
+        self.assertEqual(payload["headers"], ["value", "group"])
+        self.assertEqual(payload["rows"], [["1", "A"], ["2", "B"]])
+        self.assertEqual(payload["sheet_name"], "CSV")
+
+    def test_statistics_excel_import_selects_sheet_and_normalizes_headers(self):
+        self.register()
+        workbook = Workbook()
+        first = workbook.active
+        first.title = "Summary"
+        first.append(["Score", "Cohort", "Score"])
+        first.append([9, "Control", 10])
+        second = workbook.create_sheet("Analysis")
+        second.append(["Before", "After", "Group"])
+        second.append([10, 14, "Treatment"])
+        second.append([12, 17, "Treatment"])
+        file_content = io.BytesIO()
+        workbook.save(file_content)
+        workbook.close()
+        response = self.client.post(
+            "/api/statistics/import",
+            data={"file": (io.BytesIO(file_content.getvalue()), "study.xlsx"), "sheet_name": "Analysis"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        payload = response.get_json()
+        self.assertEqual(payload["sheet_names"], ["Summary", "Analysis"])
+        self.assertEqual(payload["sheet_name"], "Analysis")
+        self.assertEqual(payload["headers"], ["Before", "After", "Group"])
+        self.assertEqual(payload["rows"], [[10, 14, "Treatment"], [12, 17, "Treatment"]])
+
+    def test_statistics_import_reports_invalid_file_types_and_damaged_workbooks(self):
+        self.register()
+        unsupported = self.client.post(
+            "/api/statistics/import",
+            data={"file": (io.BytesIO(b"data"), "study.pdf")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(unsupported.status_code, 400)
+        damaged = self.client.post(
+            "/api/statistics/import",
+            data={"file": (io.BytesIO(b"not an Excel file"), "study.xlsx")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(damaged.status_code, 400)
+
+    def test_citation_generation_does_not_invent_missing_metadata(self):
+        response = self.client.post("/api/citations/generate", json={
+            "authors": [{"lastName": "Smith"}],
+            "publication_year": 2024,
+            "style": "parenthetical",
+            "title": "A verified study",
+            "doi": "10.1000/example",
+        })
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()["in_text"], "(Smith, 2024)")
+        self.assertIn("https://doi.org/10.1000/example", response.get_json()["reference"])
+        full_doi = self.client.post("/api/citations/generate", json={
+            "authors": [{"lastName": "Smith"}],
+            "publication_year": 2024,
+            "doi": "https://doi.org/10.1000/example",
+        })
+        self.assertNotIn("doi.org/https://", full_doi.get_json()["reference"])
+
+    def test_crossref_verified_metadata_is_fetched_server_side(self):
+        self.register()
+        project = self.create_project()
+        provider_response = io.BytesIO(json.dumps({
+            "message": {
+                "DOI": "10.1000/verified",
+                "title": ["Provider-confirmed title"],
+                "author": [{"given": "Verified Author", "family": "Scholar"}],
+                "published-online": {"date-parts": [[2023]]},
+                "container-title": ["Verified Journal"],
+                "URL": "https://doi.org/10.1000/verified",
+                "type": "journal-article",
+                "publisher": "Verified Press",
+            },
+        }).encode())
+        with patch("app.urlopen", return_value=provider_response):
+            response = self.client.post(
+                f"/api/projects/{project['id']}/sources",
+                headers=self.write_headers(),
+                json={
+                    "title": "Forged title",
+                    "authors": [{"lastName": "Forged"}],
+                    "publication_year": 1999,
+                    "doi": "10.1000/verified",
+                    "metadata_verified": True,
+                },
+            )
+        self.assertEqual(response.status_code, 201)
+        saved = self.client.get(f"/api/projects/{project['id']}/sources").get_json()["sources"][0]
+        self.assertEqual(saved["title"], "Provider-confirmed title")
+        self.assertEqual(saved["authors"][0]["lastName"], "Scholar")
+        self.assertEqual(saved["publication_year"], 2023)
+        self.assertEqual(saved["metadata_verified"], 1)
+
+    def test_user_cannot_mark_unverified_source_as_verified_or_add_javascript_url(self):
+        self.register()
+        project = self.create_project()
+        response = self.client.post(
+            f"/api/projects/{project['id']}/sources",
+            headers=self.write_headers(),
+            json={"title": "Unverified", "metadata_verified": True},
+        )
+        self.assertEqual(response.status_code, 201)
+        saved = self.client.get(f"/api/projects/{project['id']}/sources").get_json()["sources"][0]
+        self.assertEqual(saved["metadata_verified"], 0)
+        invalid_url = self.client.post(
+            f"/api/projects/{project['id']}/sources",
+            headers=self.write_headers(),
+            json={"title": "Unsafe link", "source_url": "javascript:alert(1)"},
+        )
+        self.assertEqual(invalid_url.status_code, 400)
+
+    def test_ai_failures_return_an_explicit_service_error(self):
+        self.register()
+        with self.assertLogs("research_os", level="ERROR"):
+            with patch("app.ask_json", side_effect=RuntimeError("GEMINI_API_KEY is missing")):
+                response = self.client.post(
+                    "/api/writing/grammar",
+                    json={"text": "A short research paragraph."},
+                )
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.get_json()["error"]["code"], "ai_service_unavailable")
+        self.assertNotIn("GEMINI_API_KEY", response.get_data(as_text=True))
+
+    def test_ai_service_parses_json_from_generate_content(self):
+        response = type("Response", (), {"text": '{"draft":"A sample research draft."}'})()
+        with patch("ai_service.client") as client:
+            client.return_value.models.generate_content.return_value = response
+            result = ai_service.ask_json("Return JSON.", "Write a sample paragraph.", retries=1)
+        self.assertEqual(result, {"draft": "A sample research draft."})
+        self.assertEqual(
+            client.return_value.models.generate_content.call_args.kwargs["model"],
+            ai_service.MODEL,
+        )
+        self.assertEqual(
+            client.return_value.models.generate_content.call_args.kwargs["config"].response_mime_type,
+            "application/json",
+        )
+
+    def test_appendix_upload_stores_original_and_checks_ownership(self):
+        self.register()
+        project = self.create_project()
+        upload = self.client.post(
+            f"/api/projects/{project['id']}/appendices",
+            data={
+                "file": (io.BytesIO(b"research data"), "notes.txt"),
+                "title": "Research notes",
+            },
+            headers=self.write_headers(),
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(upload.status_code, 201, upload.get_json())
+        appendix_id = upload.get_json()["id"]
+        download = self.client.get(f"/api/appendices/{appendix_id}/download")
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(download.data, b"research data")
+        download.close()
+        preview = self.client.get(f"/api/appendices/{appendix_id}/preview")
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.data, b"research data")
+        self.assertEqual(preview.mimetype, "text/plain")
+        self.assertEqual(preview.headers["X-Content-Type-Options"], "nosniff")
+        preview.close()
+        self.client.post("/api/auth/logout", json={}, headers=self.write_headers())
+        self.register("another@example.org")
+        private_download = self.client.get(f"/api/appendices/{appendix_id}/download")
+        self.assertEqual(private_download.status_code, 404)
+        private_preview = self.client.get(f"/api/appendices/{appendix_id}/preview")
+        self.assertEqual(private_preview.status_code, 404)
+
+    def test_deleted_appendix_does_not_cause_duplicate_labels(self):
+        self.register()
+        project = self.create_project()
+
+        def upload(name):
+            return self.client.post(
+                f"/api/projects/{project['id']}/appendices",
+                data={"file": (io.BytesIO(name.encode()), f"{name}.txt")},
+                headers=self.write_headers(),
+                content_type="multipart/form-data",
+            )
+
+        first = upload("first").get_json()
+        second = upload("second").get_json()
+        self.assertEqual((first["appendix_letter"], second["appendix_letter"]), ("A", "B"))
+        self.client.delete(f"/api/appendices/{first['id']}", headers=self.write_headers())
+        third = upload("third").get_json()
+        self.assertEqual(third["appendix_letter"], "C")
+
+    def test_crossref_search_uses_provider_metadata(self):
+        self.register()
+        provider_response = io.BytesIO(json.dumps({
+            "message": {"items": [{
+                "title": ["A provider record"],
+                "author": [{"given": "A. B.", "family": "Researcher"}],
+                "published-print": {"date-parts": [[2024, 2]]},
+                "DOI": "10.1000/provider",
+                "URL": "https://doi.org/10.1000/provider",
+                "container-title": ["Research Journal"],
+            }]},
+        }).encode())
+        with patch("app.urlopen", return_value=provider_response):
+            response = self.client.get("/api/literature/search?q=research")
+        self.assertEqual(response.status_code, 200)
+        record = response.get_json()["results"][0]
+        self.assertEqual(record["title"], "A provider record")
+        self.assertEqual(record["authors"][0]["lastName"], "Researcher")
+        self.assertEqual(record["publication_year"], 2024)
+        self.assertTrue(record["metadata_verified"])
+
+    @unittest.skipIf(__import__("app").Document is None, "python-docx is not installed")
+    def test_docx_export_returns_an_editable_word_document(self):
+        self.register()
+        project = self.create_project()
+        document = self.client.get(f"/api/projects/{project['id']}/documents").get_json()["documents"][0]
+        response = self.client.put(
+            f"/api/documents/{document['id']}/autosave",
+            json={"content": {"sections": [{"title": "Subsection", "content": "Editable text.", "level": 2}]}},
+            headers=self.write_headers(),
+        )
+        self.assertEqual(response.status_code, 200)
+        response = self.client.post(
+            "/api/export/docx",
+            json={"project_id": project["id"]},
+            headers=self.write_headers(),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.mimetype,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        self.assertTrue(response.data.startswith(b"PK"))
+        word_document = __import__("app").Document(io.BytesIO(response.data))
+        heading = next(paragraph for paragraph in word_document.paragraphs if paragraph.text == "Subsection")
+        self.assertEqual(heading.style.name, "Heading 2")
+        get_response = self.client.get(f"/api/export/docx?project_id={project['id']}")
+        self.assertEqual(get_response.status_code, 200)
+        self.assertIn("attachment", get_response.headers.get("Content-Disposition", ""))
+
+    @unittest.skipIf(__import__("app").SimpleDocTemplate is None, "ReportLab is not installed")
+    def test_pdf_export_returns_a_pdf(self):
+        self.register()
+        project = self.create_project()
+        response = self.client.post(
+            "/api/export/pdf",
+            json={"project_id": project["id"]},
+            headers=self.write_headers(),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "application/pdf")
+        self.assertTrue(response.data.startswith(b"%PDF"))
+        get_response = self.client.get(f"/api/export/pdf?project_id={project['id']}")
+        self.assertEqual(get_response.status_code, 200)
+
+
+if __name__ == "__main__":
+    unittest.main()

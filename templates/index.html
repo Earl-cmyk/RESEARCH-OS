@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#12251f">
+    <meta name="description" content="A secure research workspace for writing, literature discovery, statistics, and document compilation.">
+    <title>Research OS</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  </head>
+  <body>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <section id="auth-screen" class="auth-screen" hidden>
+      <div class="auth-card">
+        <div class="brand-mark">R</div>
+        <p class="eyebrow">YOUR ACADEMIC WORKSPACE</p>
+        <h1>Research OS</h1>
+        <p class="muted">Plan, develop, and compile your research in one private workspace.</p>
+        <div class="auth-tabs" role="tablist">
+          <button type="button" class="tab active" data-auth-mode="login">Sign in</button>
+          <button type="button" class="tab" data-auth-mode="register">Create account</button>
+        </div>
+        <form id="auth-form">
+          <label id="name-field" hidden>
+            Full name
+            <input name="name" autocomplete="name" maxlength="120">
+          </label>
+          <label>
+            Email
+            <input name="email" type="email" autocomplete="email" required maxlength="254">
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" autocomplete="current-password" required minlength="12" maxlength="256">
+            <small id="password-hint" class="muted">Use at least 12 characters.</small>
+          </label>
+          <button class="button primary wide" type="submit" id="auth-submit">Sign in</button>
+          <p id="auth-error" class="form-error" aria-live="polite"></p>
+        </form>
+        <p class="fine-print">Your workspace is private to your account. AI tools require a server-side Gemini API key.</p>
+      </div>
+    </section>
+
+    <div id="app-shell" class="app-shell" hidden>
+      <aside class="sidebar">
+        <a class="brand" href="#" data-view="dashboard" aria-label="Research OS dashboard">
+          <span class="brand-mark small">R</span>
+          <span><strong>Research OS</strong><small>Research workspace</small></span>
+        </a>
+        <div class="project-switcher">
+          <label for="project-select">CURRENT PROJECT</label>
+          <select id="project-select" aria-label="Current research project"></select>
+        </div>
+        <nav class="nav-list" aria-label="Main navigation">
+          <button class="nav-item active" data-view="dashboard"><span>◫</span> Dashboard</button>
+          <button class="nav-item" data-view="projects"><span>▤</span> My Research</button>
+          <button class="nav-item" data-view="writing"><span>✎</span> Writing Lab</button>
+          <button class="nav-item" data-view="literature"><span>⌕</span> Literature Review</button>
+          <button class="nav-item" data-view="statistics"><span>∑</span> Statistical Lab</button>
+          <button class="nav-item" data-view="builder"><span>▧</span> Document Builder</button>
+          <button class="nav-item" data-view="appendices"><span>↥</span> Appendices</button>
+          <button class="nav-item" data-view="references"><span>❝</span> References</button>
+        </nav>
+        <div class="sidebar-bottom">
+          <p class="fine-print">AI suggestions are drafts for researcher review. Verify sources, calculations, and final formatting.</p>
+          <button id="sign-out" class="nav-item quiet"><span>↪</span> Sign out</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="page-kicker">RESEARCH WORKSPACE</p>
+            <h1 id="page-title">Dashboard</h1>
+          </div>
+          <div class="topbar-user">
+            <span id="user-name"></span>
+            <span class="avatar" id="user-avatar">R</span>
+          </div>
+        </header>
+        <div id="notice" class="notice" role="status" hidden></div>
+        <section id="view-root" class="view-root" aria-live="polite"></section>
+      </main>
+    </div>
+  </body>
+</html>
