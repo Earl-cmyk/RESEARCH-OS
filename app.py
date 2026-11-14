@@ -102,14 +102,22 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_TEXT_CHARS = 30_000
 RICH_TEXT_TAGS = {
     "a", "b", "blockquote", "br", "div", "em", "font", "h1", "h2", "h3",
-    "i", "li", "ol", "p", "span", "strong", "u", "ul",
+    "i", "img", "li", "ol", "p", "span", "strong", "table", "tbody", "td",
+    "th", "thead", "tr", "u", "ul",
 }
 RICH_TEXT_ATTRIBUTES = {
-    "a": ["href", "title"],
+    "a": lambda _tag, name, value: name == "title" or (
+        name == "href" and re.match(r"(?i)^(?:https?://|mailto:)", value) is not None
+    ),
     "font": ["face", "size", "color"],
     "span": ["style"],
     "p": ["style"],
     "div": ["style"],
+    "img": lambda _tag, name, value: name in {"alt", "title"} or (
+        name == "src" and re.fullmatch(
+            r"data:image/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}", value
+        ) is not None
+    ),
 }
 RICH_TEXT_CSS = CSSSanitizer(allowed_css_properties={
     "background-color", "color", "font-family", "font-size", "text-align",
@@ -233,7 +241,7 @@ def enforce_rate_limits():
         limit, window, group = 10, 300, "auth"
     elif endpoint in {"grammar", "writing_analysis", "correct_writing", "refine_writing", "summarize_writing"}:
         limit, window, group = 12, 3600, "ai"
-    elif endpoint == "search_literature":
+    elif endpoint in {"search_literature", "lookup_citation_doi"}:
         limit, window, group = 60, 60, "literature"
     else:
         return None
@@ -285,7 +293,7 @@ def sanitize_rich_html(value: Any) -> str:
         value,
         tags=RICH_TEXT_TAGS,
         attributes=RICH_TEXT_ATTRIBUTES,
-        protocols={"http", "https", "mailto"},
+        protocols={"http", "https", "mailto", "data"},
         css_sanitizer=RICH_TEXT_CSS,
         strip=True,
         strip_comments=True,
@@ -678,6 +686,33 @@ def document_versions(document_id: str):
     ).fetchone():
         return api_error("Document not found.", 404, "not_found")
     return jsonify({"versions": [dict(row) for row in rows]})
+
+
+@app.get("/api/documents/<document_id>/versions/<int:version_number>")
+@require_auth
+def document_version(document_id: str, version_number: int):
+    row = get_db().execute(
+        """SELECT v.version_number, v.content_snapshot, v.created_at
+           FROM document_versions v
+           JOIN documents d ON d.id = v.document_id
+           JOIN research_projects p ON p.id = d.project_id
+           WHERE d.id = ? AND v.version_number = ? AND p.user_id = ?""",
+        (document_id, version_number, session["user_id"]),
+    ).fetchone()
+    if row is None:
+        return api_error("Document version not found.", 404, "not_found")
+    snapshot = row["content_snapshot"]
+    try:
+        content = json.loads(snapshot)
+    except json.JSONDecodeError:
+        content = {"text": snapshot}
+    return jsonify({
+        "version": {
+            "version_number": row["version_number"],
+            "created_at": row["created_at"],
+            "content": sanitize_document_content(content),
+        },
+    })
 
 
 def call_ai(prompt: str, text: str, feature: str):
@@ -1093,37 +1128,172 @@ def delete_source(project_id: str, source_id: str):
     return jsonify({"ok": True})
 
 
-def reference_entry(source: dict[str, Any]) -> str:
+def initials(first_name: str) -> str:
+    result = []
+    for word in first_name.split():
+        initials_for_word = "-".join(f"{part[0].upper()}." for part in word.split("-") if part)
+        if initials_for_word:
+            result.append(initials_for_word)
+    return " ".join(result)
+
+
+def apa_author_names(authors: list[dict[str, Any]]) -> str:
+    formatted = []
+    for author in authors:
+        family_name = str(author.get("lastName", "")).strip()
+        given_names = initials(str(author.get("firstName", "")))
+        formatted.append(f"{family_name}, {given_names}".rstrip(", "))
+    if len(formatted) == 1:
+        return formatted[0]
+    if len(formatted) <= 20:
+        return f"{', '.join(formatted[:-1])}, & {formatted[-1]}"
+    return f"{', '.join(formatted[:19])}, … {formatted[-1]}"
+
+
+def edition_label(value: str) -> str:
+    edition = value.strip()
+    if not edition:
+        return ""
+    if edition.isdigit():
+        number = int(edition)
+        suffix = "th" if 10 <= number % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+        edition = f"{number}{suffix} ed."
+    elif not re.search(r"\b(?:ed|edition)\b", edition, re.IGNORECASE):
+        edition = f"{edition} ed."
+    return edition
+
+
+def reference_parts(source: dict[str, Any]) -> list[tuple[str, bool]]:
     authors = source.get("authors") or []
-    if not authors:
-        author_text = "Anonymous"
-    else:
-        formatted = []
-        for author in authors:
-            last_name = author.get("lastName", "").strip()
-            initials = " ".join(
-                f"{part[0].upper()}." for part in author.get("firstName", "").split() if part
-            )
-            formatted.append(f"{last_name}, {initials}".rstrip(", "))
-        if len(formatted) == 1:
-            author_text = formatted[0]
-        elif len(formatted) == 2:
-            author_text = f"{formatted[0]}, & {formatted[1]}"
-        elif len(formatted) <= 20:
-            author_text = f"{', '.join(formatted[:-1])}, & {formatted[-1]}"
-        else:
-            author_text = f"{', '.join(formatted[:19])}, … {formatted[-1]}"
+    group_author = str(source.get("group_author") or "").strip()
+    author_text = apa_author_names(authors) if authors else group_author
+    title = str(source.get("title") or "").strip().rstrip(".")
     year = source.get("publication_year") or "n.d."
-    title = (source.get("title") or "Title unavailable").rstrip(".")
-    journal = source.get("journal") or source.get("publisher") or ""
-    doi = source.get("doi")
-    url = doi_url(doi) if doi else source.get("source_url", "")
-    parts = [f"{author_text} ({year}). {title}."]
-    if journal:
-        parts.append(f"{journal}.")
+    source_type = source.get("source_type") or (
+        "journal_article" if source.get("journal") else "webpage"
+    )
+    doi = str(source.get("doi") or "").strip()
+    url = doi_url(doi) if doi else str(source.get("source_url") or "").strip()
+    publisher = str(source.get("publisher") or "").strip()
+    journal = str(source.get("journal") or "").strip()
+    volume = str(source.get("volume") or "").strip()
+    issue = str(source.get("issue") or "").strip()
+    pages = str(source.get("pages") or "").strip()
+    edition = str(source.get("edition") or "").strip()
+    book_title = str(source.get("book_title") or "").strip()
+    editors = source.get("editors") or []
+    website = str(source.get("website") or "").strip()
+    institution = str(source.get("institution") or "").strip()
+    degree_type = str(source.get("degree_type") or "Doctoral dissertation").strip()
+    report_number = str(source.get("report_number") or "").strip()
+    publication_date = str(source.get("publication_date") or "").strip()
+    month = str(source.get("month") or "").strip()
+    day = str(source.get("day") or "").strip()
+
+    date_text = str(year)
+    if source_type in {"webpage", "newspaper_article"}:
+        date_parts = [month, day]
+        date_detail = " ".join(part for part in date_parts if part)
+        if date_detail:
+            date_text = f"{year}, {date_detail}"
+        elif publication_date.count("-") >= 1:
+            date_text = publication_date
+
+    parts: list[tuple[str, bool]] = []
+    if author_text:
+        parts.append((f"{author_text} ({date_text}). ", False))
+    else:
+        title_is_italic = source_type in {"book", "webpage", "report", "dissertation"}
+        parts.append((title, title_is_italic))
+        parts.append((f" ({date_text}). ", False))
+
+    if source_type == "journal_article":
+        if author_text:
+            parts.append((f"{title}. ", False))
+        if journal:
+            parts.append((journal, True))
+        if volume:
+            if journal:
+                parts.append((", ", False))
+            else:
+                parts.append(("", False))
+            parts.append((volume, True))
+            if issue:
+                parts.append((f"({issue})", False))
+        if pages:
+            parts.append((f", {pages}", False))
+        if journal or volume or pages:
+            parts.append((". ", False))
+    elif source_type == "book":
+        if author_text:
+            parts.append((title, True))
+        edition_text = edition_label(edition)
+        if edition_text:
+            parts.append((f" ({edition_text})", False))
+        parts.append((". ", False))
+        if publisher:
+            parts.append((f"{publisher}. ", False))
+    elif source_type == "book_chapter":
+        if author_text:
+            parts.append((f"{title}. In ", False))
+        else:
+            parts.append((" In ", False))
+        editor_names = apa_author_names(editors) if editors else ""
+        if editor_names:
+            parts.append((editor_names, False))
+            parts.append((" (Ed.)" if len(editors) == 1 else " (Eds.), ", False))
+            if len(editors) == 1:
+                parts.append((", ", False))
+        parts.append((book_title, True))
+        if pages:
+            parts.append((f" (pp. {pages})", False))
+        parts.append((". ", False))
+        if publisher:
+            parts.append((f"{publisher}. ", False))
+    elif source_type == "report":
+        if author_text:
+            parts.append((title, True))
+        if report_number:
+            parts.append((f" (Report No. {report_number})", False))
+        parts.append((". ", False))
+        if publisher and publisher.casefold() != group_author.casefold():
+            parts.append((f"{publisher}. ", False))
+    elif source_type == "dissertation":
+        if author_text:
+            parts.append((title, True))
+        if institution:
+            parts.append((f" [{degree_type}, {institution}]", False))
+        parts.append((". ", False))
+        if publisher:
+            parts.append((f"{publisher}. ", False))
+    elif source_type == "newspaper_article":
+        if author_text:
+            parts.append((f"{title}. ", False))
+        if journal:
+            parts.append((journal, True))
+            parts.append((", ", False))
+            if pages:
+                parts.append((f"pp. {pages}", False))
+            parts.append((". ", False))
+    else:
+        if author_text:
+            parts.append((title, True))
+            parts.append((". ", False))
+        if website and website.casefold() != group_author.casefold():
+            parts.append((f"{website}. ", False))
+
     if url:
-        parts.append(url)
-    return " ".join(part for part in parts if part)
+        parts.append((url, False))
+    while parts and not parts[-1][0].strip():
+        parts.pop()
+    if parts:
+        text, italic = parts[-1]
+        parts[-1] = (text.rstrip(), italic)
+    return parts
+
+
+def reference_entry(source: dict[str, Any]) -> str:
+    return "".join(text for text, _italic in reference_parts(source)).strip()
 
 
 def doi_url(doi: str) -> str:
@@ -1139,6 +1309,13 @@ def doi_url(doi: str) -> str:
 @app.post("/api/citations/generate")
 def generate_citation():
     data = json_body()
+    source_type = data.get("source_type", "journal_article")
+    supported_types = {
+        "journal_article", "book", "webpage", "report",
+        "book_chapter", "dissertation", "newspaper_article",
+    }
+    if not isinstance(source_type, str) or source_type not in supported_types:
+        raise ValueError("Choose a supported APA 7 source type.")
     authors = data.get("authors", [])
     if not isinstance(authors, list):
         raise ValueError("Authors must be a list.")
@@ -1147,36 +1324,155 @@ def generate_citation():
         if not isinstance(author, dict):
             raise ValueError("Each author must be an object.")
         normalized.append({
-            "firstName": str(author.get("firstName", "")),
+            "firstName": clean_text(str(author.get("firstName", "")), "Author given name", 120),
             "lastName": clean_text(author.get("lastName", ""), "Author surname", 100, required=True),
         })
     year = data.get("publication_year")
-    if year is not None and (not isinstance(year, int) or year < 0 or year > 3000):
+    if year is not None and (
+        isinstance(year, bool) or not isinstance(year, int) or year < 1 or year > 3000
+    ):
         raise ValueError("Publication year must be a valid year.")
     style = data.get("style", "parenthetical")
-    if style not in {"parenthetical", "narrative"}:
+    if not isinstance(style, str) or style not in {"parenthetical", "narrative"}:
         raise ValueError("Citation style must be parenthetical or narrative.")
-    if not normalized:
-        author_text = "Anonymous"
-    elif len(normalized) == 1:
-        author_text = normalized[0]["lastName"]
-    elif len(normalized) == 2:
+    group_author = clean_text(data.get("group_author", ""), "Organization author", 240)
+    citation_authors = [author["lastName"] for author in normalized]
+    if not citation_authors and group_author:
+        citation_authors = [group_author]
+    if len(citation_authors) == 1:
+        in_text_author = citation_authors[0]
+    elif len(citation_authors) == 2:
         connector = " & " if style == "parenthetical" else " and "
-        author_text = connector.join(author["lastName"] for author in normalized)
+        in_text_author = connector.join(citation_authors)
+    elif len(citation_authors) > 2:
+        in_text_author = f"{citation_authors[0]} et al."
     else:
-        author_text = f"{normalized[0]['lastName']} et al."
+        in_text_author = ""
     year_text = str(year) if year else "n.d."
-    citation = f"({author_text}, {year_text})" if style == "parenthetical" else f"{author_text} ({year_text})"
+    title = clean_text(data.get("title", ""), "Title", 1000, required=True)
+    if in_text_author:
+        citation = (
+            f"({in_text_author}, {year_text})"
+            if style == "parenthetical"
+            else f"{in_text_author} ({year_text})"
+        )
+    else:
+        cited_title = f'"{title}"' if source_type in {"journal_article", "newspaper_article"} else title
+        citation = (
+            f"({cited_title}, {year_text})"
+            if style == "parenthetical"
+            else f"{cited_title} ({year_text})"
+        )
+    source_url = clean_http_url(data.get("source_url", ""), "Source URL")
+    doi = clean_text(data.get("doi", ""), "DOI", 300)
+    month = clean_text(data.get("month", ""), "Publication month", 20)
+    day = clean_text(data.get("day", ""), "Publication day", 2)
+    if day and (not day.isdigit() or not 1 <= int(day) <= 31):
+        raise ValueError("Publication day must be between 1 and 31.")
     source = {
         "authors": normalized,
+        "group_author": group_author,
         "publication_year": year,
-        "title": clean_text(data.get("title", "Title unavailable"), "Title", 1000),
+        "source_type": source_type,
+        "title": title,
         "journal": clean_text(data.get("journal", ""), "Journal", 500),
         "publisher": clean_text(data.get("publisher", ""), "Publisher", 500),
-        "doi": clean_text(data.get("doi", ""), "DOI", 300),
-        "source_url": clean_http_url(data.get("source_url", ""), "Source URL"),
+        "doi": doi,
+        "source_url": source_url,
+        "volume": clean_text(data.get("volume", ""), "Volume", 100),
+        "issue": clean_text(data.get("issue", ""), "Issue", 100),
+        "pages": clean_text(data.get("pages", ""), "Pages", 100),
+        "edition": clean_text(data.get("edition", ""), "Edition", 100),
+        "book_title": clean_text(data.get("book_title", ""), "Book title", 1000),
+        "editors": data.get("editors", []),
+        "website": clean_text(data.get("website", ""), "Website name", 500),
+        "institution": clean_text(data.get("institution", ""), "Institution", 500),
+        "degree_type": clean_text(data.get("degree_type", "Doctoral dissertation"), "Degree type", 100),
+        "report_number": clean_text(data.get("report_number", ""), "Report number", 100),
+        "month": month,
+        "day": day,
+        "publication_date": clean_text(data.get("publication_date", ""), "Publication date", 30),
     }
-    return jsonify({"in_text": citation, "reference": reference_entry(source)})
+    editors = source["editors"]
+    if not isinstance(editors, list) or any(not isinstance(editor, dict) for editor in editors):
+        raise ValueError("Editors must be a list of people.")
+    source["editors"] = [{
+        "firstName": clean_text(str(editor.get("firstName", "")), "Editor given name", 120),
+        "lastName": clean_text(editor.get("lastName", ""), "Editor surname", 100, required=True),
+    } for editor in editors]
+
+    warnings = []
+    if not normalized and not group_author:
+        warnings.append("Author information is missing; the title is used in the in-text citation.")
+    if not year:
+        warnings.append("Publication year is missing; APA uses n.d.")
+    required_by_type = {
+        "journal_article": (("journal", "Journal or periodical title"),),
+        "book": (("publisher", "Publisher"),),
+        "webpage": (("source_url", "Webpage URL"),),
+        "report": (("publisher", "Publisher"),),
+        "book_chapter": (("book_title", "Edited book title"), ("publisher", "Publisher")),
+        "dissertation": (("institution", "Awarding institution"),),
+        "newspaper_article": (("journal", "Newspaper name"),),
+    }
+    for key, label in required_by_type[source_type]:
+        if not source.get(key):
+            warnings.append(f"{label} is missing.")
+    return jsonify({
+        "in_text": citation,
+        "reference": reference_entry(source),
+        "reference_parts": [{"text": text, "italic": italic} for text, italic in reference_parts(source)],
+        "warnings": warnings,
+        "source_type": source_type,
+    })
+
+
+@app.get("/api/citations/lookup")
+def lookup_citation_doi():
+    doi = clean_text(request.args.get("doi", ""), "DOI", 300, required=True)
+    if not re.match(r"^10\.\d{4,9}/\S+$", doi_url(doi).removeprefix("https://doi.org/"), re.IGNORECASE):
+        raise ValueError("Enter a valid DOI, such as 10.1000/example.")
+    record = fetch_crossref_doi(doi)
+    if record is None:
+        return api_error("No Crossref record was found for this DOI.", 404, "citation_doi_not_found")
+    date_parts = (
+        record.get("published-print", {}).get("date-parts")
+        or record.get("published-online", {}).get("date-parts")
+        or record.get("issued", {}).get("date-parts")
+        or [[]]
+    )
+    date = date_parts[0] if date_parts else []
+    crossref_type = record.get("type", "")
+    source_type = {
+        "journal-article": "journal_article",
+        "book": "book",
+        "book-chapter": "book_chapter",
+        "book-part": "book_chapter",
+        "posted-content": "webpage",
+        "report": "report",
+        "dissertation": "dissertation",
+        "component": "webpage",
+    }.get(crossref_type, "journal_article" if record.get("container-title") else "webpage")
+    return jsonify({
+        "source": {
+            "source_type": source_type,
+            "title": (record.get("title") or [""])[0],
+            "authors": [crossref_author(author) for author in record.get("author", [])],
+            "editors": [crossref_author(editor) for editor in record.get("editor", [])],
+            "publication_year": date[0] if date and date[0] else None,
+            "month": date[1] if len(date) > 1 else None,
+            "day": date[2] if len(date) > 2 else None,
+            "journal": (record.get("container-title") or [""])[0],
+            "book_title": (record.get("container-title") or [""])[0] if source_type == "book_chapter" else "",
+            "publisher": record.get("publisher", ""),
+            "volume": record.get("volume", ""),
+            "issue": record.get("issue", ""),
+            "pages": record.get("page", ""),
+            "doi": record.get("DOI", doi),
+            "source_url": record.get("URL", doi_url(doi)),
+        },
+        "provider": "Crossref",
+    })
 
 
 @app.get("/api/projects/<project_id>/references")
@@ -1863,15 +2159,26 @@ def clean_export_text(value: Any) -> str:
         def __init__(self):
             super().__init__(convert_charrefs=True)
             self.parts: list[str] = []
+            self.row_has_cell = False
 
         def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
             if tag in {"p", "div", "br", "li", "h1", "h2", "h3", "blockquote"}:
                 self.parts.append("\n")
                 if tag == "li":
                     self.parts.append("• ")
+            elif tag == "tr":
+                self.row_has_cell = False
+            elif tag in {"td", "th"}:
+                if self.row_has_cell:
+                    self.parts.append("\t")
+                self.row_has_cell = True
+            elif tag == "img":
+                attributes = dict(_attrs)
+                if attributes.get("alt"):
+                    self.parts.append(f"[Image: {attributes['alt']}]")
 
         def handle_endtag(self, tag: str) -> None:
-            if tag in {"p", "div", "li", "h1", "h2", "h3", "blockquote"}:
+            if tag in {"p", "div", "li", "h1", "h2", "h3", "blockquote", "tr"}:
                 self.parts.append("\n")
 
         def handle_data(self, data: str) -> None:

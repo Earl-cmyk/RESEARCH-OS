@@ -13,6 +13,7 @@ _test_storage = tempfile.TemporaryDirectory()
 os.environ["DATABASE_PATH"] = str(Path(_test_storage.name) / "bootstrap.sqlite3")
 os.environ["UPLOAD_FOLDER"] = str(Path(_test_storage.name) / "uploads")
 os.environ["SECRET_KEY"] = "test-only-secret-key"
+os.environ["DATABASE_URL"] = ""
 
 from app import (
     PostgresConnection,
@@ -34,6 +35,7 @@ class ResearchOsApiTests(unittest.TestCase):
         self.storage = tempfile.TemporaryDirectory()
         app.config.update(
             TESTING=True,
+            DATABASE_URL="",
             DATABASE_PATH=str(Path(self.storage.name) / "test.sqlite3"),
             UPLOAD_FOLDER=str(Path(self.storage.name) / "uploads"),
             SECRET_KEY="test-only-secret-key",
@@ -76,13 +78,45 @@ class ResearchOsApiTests(unittest.TestCase):
         self.assertEqual([section["title"] for section in documents[0]["content"]["sections"]],
                          [f"Chapter {number}" for number in range(1, 6)])
 
+    def test_project_can_be_updated_and_update_is_private(self):
+        self.register()
+        project = self.create_project()
+        response = self.client.patch(
+            f"/api/projects/{project['id']}",
+            headers=self.write_headers(),
+            json={
+                "title": "Updated research project",
+                "field": "Public health",
+                "research_type": "Quantitative",
+                "institution": "Example University",
+                "status": "In progress",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()["project"]["project_title"], "Updated research project")
+        self.assertEqual(response.get_json()["project"]["research_status"], "In progress")
+
+        self.client.post("/api/auth/logout", json={}, headers=self.write_headers())
+        self.register("another@example.org")
+        denied = self.client.patch(
+            f"/api/projects/{project['id']}",
+            headers=self.write_headers(),
+            json={"title": "Not yours"},
+        )
+        self.assertEqual(denied.status_code, 404)
+
     def test_project_documents_are_private_between_accounts(self):
         self.register()
         project = self.create_project()
+        document = self.client.get(f"/api/projects/{project['id']}/documents").get_json()["documents"][0]
         self.client.post("/api/auth/logout", json={}, headers=self.write_headers())
         self.register("another@example.org")
         response = self.client.get(f"/api/projects/{project['id']}")
         self.assertEqual(response.status_code, 404)
+        versions = self.client.get(f"/api/documents/{document['id']}/versions")
+        self.assertEqual(versions.status_code, 404)
+        version = self.client.get(f"/api/documents/{document['id']}/versions/1")
+        self.assertEqual(version.status_code, 404)
 
     def test_autosave_tracks_previous_revision(self):
         self.register()
@@ -98,6 +132,10 @@ class ResearchOsApiTests(unittest.TestCase):
         self.assertEqual(response.get_json()["version"], 2)
         versions = self.client.get(f"/api/documents/{document['id']}/versions").get_json()["versions"]
         self.assertEqual([version["version_number"] for version in versions], [1])
+        self.assertNotIn("content", versions[0])
+        self.assertIn("created_at", versions[0])
+        version = self.client.get(f"/api/documents/{document['id']}/versions/1").get_json()["version"]
+        self.assertEqual(version["content"]["sections"][0]["content"], "")
         unchanged = self.client.put(
             f"/api/documents/{document['id']}/autosave",
             json={"content": content, "version": 1},
@@ -219,6 +257,24 @@ class ResearchOsApiTests(unittest.TestCase):
                          "Draft\n\nSecond paragraph")
         self.assertNotIn("background-image", sanitize_rich_html(unsafe_html))
 
+    def test_rich_text_tables_and_images_are_safe_and_export_as_readable_text(self):
+        rich_html = (
+            '<table><tbody><tr><th>Measure</th><th>Value</th></tr>'
+            '<tr><td>Mean</td><td>4.2</td></tr></tbody></table>'
+            '<img src="data:image/png;base64,AAAA" alt="Chart">'
+        )
+        sanitized = sanitize_rich_html(rich_html)
+        self.assertIn("<table>", sanitized)
+        self.assertIn('src="data:image/png;base64,AAAA"', sanitized)
+        self.assertEqual(
+            clean_export_text(sanitized),
+            "Measure\tValue\nMean\t4.2\n[Image: Chart]",
+        )
+        unsafe_image = sanitize_rich_html(
+            '<img src="data:text/html;base64,PHNjcmlwdD4=" alt="Unsafe">'
+        )
+        self.assertNotIn("data:text/html", unsafe_image)
+
     def test_write_requests_require_csrf_token(self):
         self.register()
         response = self.client.post("/api/projects", json={"title": "No token"})
@@ -228,6 +284,7 @@ class ResearchOsApiTests(unittest.TestCase):
         page = self.client.get("/")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"Research OS", page.data)
+        self.assertIn(b"Manuscript Editor", page.data)
         script = self.client.get("/static/app.js")
         self.assertEqual(script.status_code, 200)
         self.assertIn(b"renderToken", script.data)
@@ -422,7 +479,9 @@ class ResearchOsApiTests(unittest.TestCase):
             "authors": [{"lastName": "Smith"}],
             "publication_year": 2024,
             "style": "parenthetical",
+            "source_type": "journal_article",
             "title": "A verified study",
+            "journal": "Journal of Testing",
             "doi": "10.1000/example",
         })
         self.assertEqual(response.status_code, 200, response.get_json())
@@ -431,9 +490,107 @@ class ResearchOsApiTests(unittest.TestCase):
         full_doi = self.client.post("/api/citations/generate", json={
             "authors": [{"lastName": "Smith"}],
             "publication_year": 2024,
+            "title": "A verified study",
             "doi": "https://doi.org/10.1000/example",
         })
         self.assertNotIn("doi.org/https://", full_doi.get_json()["reference"])
+
+    def test_apa7_citation_generator_formats_journal_book_and_no_author_sources(self):
+        journal = self.client.post("/api/citations/generate", json={
+            "authors": [
+                {"firstName": "John Alex", "lastName": "Smith"},
+                {"firstName": "Taylor", "lastName": "Jones"},
+            ],
+            "publication_year": 2024,
+            "source_type": "journal_article",
+            "style": "narrative",
+            "title": "A study of research",
+            "journal": "Journal of Testing",
+            "volume": "12",
+            "issue": "3",
+            "pages": "10-20",
+        })
+        self.assertEqual(journal.status_code, 200, journal.get_json())
+        self.assertEqual(journal.get_json()["in_text"], "Smith and Jones (2024)")
+        self.assertEqual(
+            journal.get_json()["reference"],
+            "Smith, J. A., & Jones, T. (2024). A study of research. Journal of Testing, 12(3), 10-20.",
+        )
+        self.assertIn(
+            {"text": "Journal of Testing", "italic": True},
+            journal.get_json()["reference_parts"],
+        )
+
+        book = self.client.post("/api/citations/generate", json={
+            "authors": [{"firstName": "Jane", "lastName": "Doe"}],
+            "publication_year": 2020,
+            "source_type": "book",
+            "title": "A research handbook",
+            "edition": "2",
+            "publisher": "Academic Press",
+        })
+        self.assertEqual(
+            book.get_json()["reference"],
+            "Doe, J. (2020). A research handbook (2nd ed.). Academic Press.",
+        )
+        self.assertIn(
+            {"text": "A research handbook", "italic": True},
+            book.get_json()["reference_parts"],
+        )
+
+        no_author = self.client.post("/api/citations/generate", json={
+            "source_type": "webpage",
+            "title": "Research guidance",
+            "source_url": "https://example.org/research",
+        })
+        self.assertEqual(no_author.get_json()["in_text"], "(Research guidance, n.d.)")
+        self.assertTrue(any("Author information is missing" in warning for warning in no_author.get_json()["warnings"]))
+        narrative_no_author = self.client.post("/api/citations/generate", json={
+            "source_type": "book",
+            "style": "narrative",
+            "title": "Research methods",
+            "publication_year": 2022,
+        })
+        self.assertEqual(narrative_no_author.get_json()["in_text"], "Research methods (2022)")
+
+    def test_citation_doi_lookup_uses_crossref_metadata(self):
+        provider_response = io.BytesIO(json.dumps({
+            "message": {
+                "DOI": "10.1000/verified",
+                "title": ["Provider article"],
+                "author": [{"given": "Jane A.", "family": "Scholar"}],
+                "published-print": {"date-parts": [[2023, 5, 12]]},
+                "container-title": ["Verified Journal"],
+                "volume": "8",
+                "issue": "2",
+                "page": "12-20",
+                "URL": "https://doi.org/10.1000/verified",
+                "type": "journal-article",
+                "publisher": "Verified Press",
+            },
+        }).encode())
+        with patch("app.urlopen", return_value=provider_response):
+            response = self.client.get("/api/citations/lookup?doi=10.1000%2Fverified")
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()["provider"], "Crossref")
+        self.assertEqual(response.get_json()["source"]["source_type"], "journal_article")
+        self.assertEqual(response.get_json()["source"]["authors"][0]["lastName"], "Scholar")
+        self.assertEqual(response.get_json()["source"]["publication_year"], 2023)
+        self.assertEqual(response.get_json()["source"]["volume"], "8")
+
+    def test_citation_generator_rejects_bad_source_type_and_doi(self):
+        bad_type = self.client.post("/api/citations/generate", json={
+            "title": "A title",
+            "source_type": "unknown",
+        })
+        self.assertEqual(bad_type.status_code, 400)
+        malformed_type = self.client.post("/api/citations/generate", json={
+            "title": "A title",
+            "source_type": [],
+        })
+        self.assertEqual(malformed_type.status_code, 400)
+        bad_doi = self.client.get("/api/citations/lookup?doi=not-a-doi")
+        self.assertEqual(bad_doi.status_code, 400)
 
     def test_crossref_verified_metadata_is_fetched_server_side(self):
         self.register()

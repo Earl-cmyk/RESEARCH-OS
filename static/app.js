@@ -20,7 +20,7 @@ const viewTitles = {
   writing: ["WRITING LAB", "Writing Lab"],
   literature: ["RESEARCH INTELLIGENCE", "Literature Review"],
   statistics: ["DETERMINISTIC ANALYSIS", "Statistical Lab"],
-  builder: ["MANUSCRIPT", "Document Builder"],
+  builder: ["WRITE YOUR RESEARCH", "Manuscript Editor"],
   appendices: ["PROJECT MATERIALS", "Appendices"],
   references: ["APA 7TH EDITION", "References"],
 };
@@ -255,14 +255,14 @@ function renderDashboard() {
   const project = state.project;
   const sections = documentSections();
   const words = sections.reduce((total, section) => total + cleanEditorText(section.content || "").trim().split(/\s+/).filter(Boolean).length, 0);
-  return `<div class="welcome"><div><p class="eyebrow">MANUSCRIPT DASHBOARD</p><h2>${escapeHtml(project.project_title)}</h2><p>${escapeHtml(project.research_field || "Research field not set")} · ${escapeHtml(project.research_type)} · ${escapeHtml(project.institution || "Institution not set")}</p></div><button class="button" data-go="builder">Open full manuscript →</button></div>
+  return `<div class="welcome"><div><p class="eyebrow">MANUSCRIPT DASHBOARD</p><h2>${escapeHtml(project.project_title)}</h2><p>${escapeHtml(project.research_field || "Research field not set")} · ${escapeHtml(project.research_type)} · ${escapeHtml(project.institution || "Institution not set")}</p></div></div>
     <div class="stats-grid">
       <div class="metric"><span>Manuscript sections</span><strong>${sections.length}</strong></div>
       <div class="metric"><span>Words in manuscript</span><strong id="manuscript-word-count">${words.toLocaleString()}</strong></div>
       <div class="metric"><span>Saved scholarly sources</span><strong>${state.sources.length}</strong></div>
       <div class="metric"><span>Appendix files</span><strong>${state.appendices.length}</strong></div>
     </div>
-    ${renderManuscriptEditor("Preliminary manuscript", false)}
+    <div class="panel manuscript-launch"><div><p class="eyebrow">YOUR RESEARCH DOCUMENT</p><h2>Write and format your manuscript</h2><p class="muted">Open the full-page editor to work on sections, insert tables or images, and export your paper.</p></div><button class="button primary" data-go="builder">Open Manuscript Editor →</button></div>
     <div class="section-heading"><h2>Material included in your manuscript export</h2></div>
     <div class="card-grid">
       <article class="context-panel"><h3>Saved literature (${state.sources.length})</h3>${state.sources.length
@@ -297,11 +297,19 @@ function editorContent(value) {
 
 function editorToolbar() {
   return `<div class="toolbar editor-toolbar">
+    <button class="button small" type="button" data-editor-command="undo" aria-label="Undo">↶ Undo</button>
+    <button class="button small" type="button" data-editor-command="redo" aria-label="Redo">↷ Redo</button>
     <button class="button small" type="button" data-editor-command="bold" aria-label="Bold"><strong>B</strong></button>
     <button class="button small" type="button" data-editor-command="italic" aria-label="Italic"><em>I</em></button>
     <button class="button small" type="button" data-editor-command="underline" aria-label="Underline"><u>U</u></button>
     <button class="button small" type="button" data-editor-command="insertUnorderedList" aria-label="Bulleted list">• List</button>
     <button class="button small" type="button" data-editor-command="insertOrderedList" aria-label="Numbered list">1. List</button>
+    <button class="button small" type="button" data-editor-command="justifyLeft" aria-label="Align left">Align left</button>
+    <button class="button small" type="button" data-editor-command="justifyCenter" aria-label="Center align">Center</button>
+    <button class="button small" type="button" data-editor-command="justifyRight" aria-label="Align right">Align right</button>
+    <button class="button small" type="button" data-insert-link>Insert link</button>
+    <button class="button small" type="button" data-insert-table>Insert table</button>
+    <label class="button small image-insert-button">Insert image<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-insert-image hidden></label>
     <select aria-label="Text style" data-editor-block><option value="p">Paragraph</option><option value="h1">Heading 1</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option><option value="blockquote">Quote</option></select>
     <select aria-label="Font family" data-editor-font><option>Georgia</option><option>Arial</option><option>Times New Roman</option><option>Verdana</option></select>
     <select aria-label="Font size" data-editor-size><option value="3">Normal</option><option value="2">Small</option><option value="4">Large</option><option value="5">Extra large</option></select>
@@ -313,10 +321,11 @@ function renderManuscriptEditor(title, includeExports = true) {
   if (!currentDocument()) return '<div class="empty-state">This project does not have a document yet.</div>';
   const sections = documentSections();
   const exportTools = includeExports
-    ? '<button class="button" id="validate-document">Validate</button><button class="button" data-export="pdf">Export PDF</button><button class="button primary" data-export="docx">Export DOCX</button>'
+    ? '<button class="button" type="button" id="toggle-document-history" aria-expanded="false">Version history</button><button class="button" id="validate-document">Validate</button><button class="button" data-export="pdf">Export PDF</button><button class="button primary" data-export="docx">Export DOCX</button>'
     : '<span class="small-label">Autosaves to this project</span>';
   return `<div class="panel manuscript-workspace"><div class="section-heading"><div><h2>${escapeHtml(title)}</h2><p class="muted">Edit your draft here. Saved literature and appendix records are included in the references and appendix list when exported.</p></div><div class="toolbar">${exportTools}</div></div>
     ${includeExports ? '<div id="document-validation" class="notice" hidden></div>' : ""}
+    ${includeExports ? '<section id="document-history" class="document-history" aria-live="polite" hidden></section>' : ""}
     ${editorToolbar()}
     <div class="toolbar" style="margin:12px 0"><span id="save-status" class="small-label">All changes saved</span><span class="spacer"></span><button class="button small" id="add-section" type="button">Add section</button></div>
     <div id="document-sections">${sections.map((section, index) => `<details class="section-editor" open data-section-index="${index}">
@@ -334,6 +343,15 @@ function renderProjects() {
   const cards = state.projects.map((project) => `<article class="card project-card">
     <div><p class="eyebrow">${escapeHtml(project.research_type)} · ${escapeHtml(project.research_status)}</p><h3>${escapeHtml(project.project_title)}</h3>
     <p class="muted">${escapeHtml(project.research_field || "Research field not set")} · ${escapeHtml(project.institution || "Institution not set")}</p></div>
+    <button class="button small" type="button" data-edit-project="${escapeHtml(project.id)}" aria-expanded="false">Edit details</button>
+    <form class="project-edit-form form-grid" data-project-update="${escapeHtml(project.id)}" hidden>
+      <label class="full">Project title<input name="title" maxlength="240" required value="${escapeHtml(project.project_title)}"></label>
+      <label>Research field<input name="field" maxlength="160" value="${escapeHtml(project.research_field || "")}"></label>
+      <label>Research type<input name="research_type" maxlength="60" required value="${escapeHtml(project.research_type)}"></label>
+      <label>Institution<input name="institution" maxlength="200" value="${escapeHtml(project.institution || "")}"></label>
+      <label>Research status<input name="status" maxlength="40" required value="${escapeHtml(project.research_status)}"></label>
+      <div class="full toolbar"><button class="button primary" type="submit">Save changes</button><button class="button" type="button" data-cancel-project-edit>Cancel</button></div>
+    </form>
     <div class="card-footer"><span class="small-label">${Number(project.source_count) || 0} saved sources</span><div class="toolbar">
       <button class="button small" data-open-project="${escapeHtml(project.id)}">Open project</button>
       <button class="button small danger" data-delete-project="${escapeHtml(project.id)}">Delete</button>
@@ -341,6 +359,31 @@ function renderProjects() {
   return `<div class="section-heading"><h2>Your research projects</h2></div>
     ${state.projects.length ? `<div class="card-grid">${cards}</div>` : '<div class="empty-state">No projects yet. Create one to begin.</div>'}
     <div class="panel" style="margin-top:20px"><h2>Create a project</h2>${projectForm()}</div>`;
+}
+
+function renderDocumentHistory(versions) {
+  if (!versions.length) return '<p class="muted">No earlier versions have been saved yet.</p>';
+  return versions.map((version) => {
+    const savedAt = Number.isNaN(Date.parse(version.created_at))
+      ? version.created_at
+      : new Date(version.created_at).toLocaleString();
+    return `<article class="version-item">
+      <div><strong>Version ${Number(version.version_number)}</strong><span class="muted">${escapeHtml(savedAt)}</span></div>
+      <pre class="version-preview" hidden></pre>
+      <div class="toolbar"><button class="button small" type="button" data-preview-version="${Number(version.version_number)}">Preview</button>
+      <button class="button small" type="button" data-restore-version="${Number(version.version_number)}">Restore this version</button>
+      </div>
+    </article>`;
+  }).join("");
+}
+
+function documentVersionPreviewText(content) {
+  const sections = content?.sections;
+  if (Array.isArray(sections)) {
+    return sections.map((section) => `${section.title || "Untitled section"}\n${cleanEditorText(section.content || "")}`).join("\n\n");
+  }
+  const text = typeof content === "string" ? content : content?.text || "";
+  return cleanEditorText(text);
 }
 
 function renderWriting() {
@@ -494,17 +537,36 @@ function renderAppendices() {
 }
 
 function renderReferences() {
-  return `<div class="panel"><h2>Generate an in-text citation</h2><p>In-text citations and reference entries use deterministic APA-style formatting. Verify each record against the original publication.</p>
+  return `<div class="panel citation-generator"><div class="section-heading"><div><p class="eyebrow">APA 7TH EDITION</p><h2>Reference and citation generator</h2><p class="muted">Choose a source type, enter its details, and create a reference-list entry plus parenthetical or narrative in-text citation. Check the finished citation against the original source.</p></div></div>
     <form id="citation-form" class="form-grid">
-      <label>Author surnames (comma-separated)<input name="authors" placeholder="Smith, Jones"></label>
-      <label>Publication year<input name="year" type="number" min="1" max="3000" placeholder="2024"></label>
-      <label>Citation style<select name="style"><option value="parenthetical">Parenthetical</option><option value="narrative">Narrative</option></select></label>
-      <label>Title<input name="title" maxlength="1000" placeholder="Article or book title"></label>
-      <label>Journal or publisher<input name="journal" maxlength="500"></label>
-      <label>DOI<input name="doi" maxlength="300" placeholder="10.xxxx/xxxxx"></label>
-      <label class="full">Source URL<input name="source_url" maxlength="2000" type="url"></label>
-      <div class="full"><button class="button primary" type="submit">Generate citation</button></div></form>
-    <div id="citation-output" class="result-box" style="margin-top:14px"></div></div>
+      <label>Source type<select name="source_type" id="citation-source-type">
+        <option value="journal_article">Journal article</option><option value="book">Book</option>
+        <option value="webpage">Webpage</option><option value="report">Report</option>
+        <option value="book_chapter">Chapter in an edited book</option><option value="dissertation">Thesis or dissertation</option>
+        <option value="newspaper_article">Newspaper article</option></select></label>
+      <label>Citation form<select name="style"><option value="parenthetical">Parenthetical (Smith, 2024)</option><option value="narrative">Narrative Smith (2024)</option></select></label>
+      <label class="full">Author(s)<textarea name="author_names" rows="3" placeholder="One author per line:&#10;Smith, John A.&#10;Jones, Taylor"></textarea><small>Enter each person as Family name, Given and middle names. Use one name per line.</small></label>
+      <label class="full">Group or organization author<input name="group_author" maxlength="240" placeholder="Use this instead of person authors, if applicable"></label>
+      <label class="full">Title<input name="title" maxlength="1000" required placeholder="Title of the article, book, webpage, or report"></label>
+      <label>Publication year<input name="publication_year" type="number" min="1" max="3000" placeholder="2024"></label>
+      <label data-citation-field="journal">Journal or newspaper name<input name="journal" maxlength="500"></label>
+      <label data-citation-field="volume">Volume<input name="volume" maxlength="100"></label>
+      <label data-citation-field="issue">Issue<input name="issue" maxlength="100"></label>
+      <label data-citation-field="pages">Page range<input name="pages" maxlength="100" placeholder="123–145"></label>
+      <label data-citation-field="publisher">Publisher<input name="publisher" maxlength="500"></label>
+      <label data-citation-field="edition">Edition number<input name="edition" type="number" min="1" max="99" placeholder="2"></label>
+      <label class="full" data-citation-field="book_title">Edited book title<input name="book_title" maxlength="1000"></label>
+      <label class="full" data-citation-field="editors">Editor(s)<textarea name="editor_names" rows="2" placeholder="One per line: Family name, Given names"></textarea></label>
+      <label data-citation-field="website">Website name<input name="website" maxlength="500"></label>
+      <label data-citation-field="report_number">Report number<input name="report_number" maxlength="100"></label>
+      <label data-citation-field="institution">Awarding institution<input name="institution" maxlength="500"></label>
+      <label data-citation-field="degree_type">Degree<select name="degree_type"><option>Doctoral dissertation</option><option>Master's thesis</option></select></label>
+      <label data-citation-field="month">Publication month<input name="month" maxlength="20" placeholder="March"></label>
+      <label data-citation-field="day">Publication day<input name="day" type="number" min="1" max="31"></label>
+      <div class="full doi-lookup-row"><label>DOI<input name="doi" maxlength="300" placeholder="10.xxxx/xxxxx or https://doi.org/…"></label><button class="button" type="button" id="lookup-citation-doi">Find DOI details</button><span id="citation-lookup-status" class="muted" aria-live="polite"></span></div>
+      <label class="full" data-citation-field="source_url">Source URL<input name="source_url" maxlength="2000" type="url" placeholder="https://…"></label>
+      <div class="full"><button class="button primary" type="submit">Create APA 7 citation</button></div></form>
+    <div id="citation-output" class="citation-output" aria-live="polite"></div></div>
     <div class="section-heading"><h2>Project reference list (${state.sources.length})</h2><button class="button small" id="copy-references">Copy references</button></div>
     ${state.sources.length ? `<div class="panel"><ol class="reference-list">${state.sources.map((source) => `<li>${escapeHtml(sourceReference(source))}</li>`).join("")}</ol></div>` : '<div class="empty-state">Save verified sources from Literature Review to build this project’s reference list.</div>'}`;
 }
@@ -514,14 +576,18 @@ function sourceReference(source) {
     const initials = (author.firstName || "").split(/\s+/).filter(Boolean).map((part) => `${part[0]}.`).join(" ");
     return `${author.lastName || ""}${initials ? `, ${initials}` : ""}`;
   });
-  let authorText = "Anonymous";
+  let authorText = "";
   if (authors.length === 1) authorText = authors[0];
   else if (authors.length === 2) authorText = `${authors[0]}, & ${authors[1]}`;
   else if (authors.length > 2) authorText = `${authors.slice(0, 19).join(", ")}, & ${authors[authors.length - 1]}`;
   const year = source.publication_year || "n.d.";
-  const sourceName = source.journal || source.publisher || "";
+  const title = source.title || "Title unavailable";
+  const journal = source.journal || "";
+  const publisher = source.publisher || "";
   const link = source.doi ? `https://doi.org/${source.doi.replace(/^https?:\/\/(dx\.)?doi\.org\//, "")}` : source.source_url || "";
-  return `${authorText} (${year}). ${source.title}.${sourceName ? ` ${sourceName}.` : ""}${link ? ` ${link}` : ""}`;
+  if (!authorText) return `${title}. (${year}).${journal ? ` ${journal}.` : ""}${link ? ` ${link}` : ""}`;
+  if (journal) return `${authorText} (${year}). ${title}. ${journal}.${link ? ` ${link}` : ""}`;
+  return `${authorText} (${year}). ${title}.${publisher ? ` ${publisher}.` : ""}${link ? ` ${link}` : ""}`;
 }
 
 function bindProjectForm() {
@@ -542,11 +608,43 @@ async function createProject(event) {
   }
 }
 
+async function updateProject(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const projectId = form.dataset.projectUpdate;
+  const submitButton = form.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  try {
+    await api(`/api/projects/${encodeURIComponent(projectId)}`, {
+      method: "PATCH",
+      body: jsonBody(Object.fromEntries(new FormData(form).entries())),
+    });
+    await loadProjects();
+    await renderView("projects");
+    notify("Project details updated.");
+  } catch (error) {
+    notify(error.message, true);
+  } finally {
+    if (submitButton.isConnected) submitButton.disabled = false;
+  }
+}
+
 function bindView(view) {
   viewRoot.querySelectorAll("[data-go]").forEach((button) => button.addEventListener("click", () => renderView(button.dataset.go)));
   if (view === "dashboard") bindBuilder();
   if (view === "projects") {
     bindProjectForm();
+    viewRoot.querySelectorAll("[data-project-update]").forEach((form) => form.addEventListener("submit", updateProject));
+    viewRoot.querySelectorAll("[data-edit-project]").forEach((button) => button.addEventListener("click", () => {
+      const form = viewRoot.querySelector(`[data-project-update="${CSS.escape(button.dataset.editProject)}"]`);
+      form.hidden = !form.hidden;
+      button.setAttribute("aria-expanded", String(!form.hidden));
+    }));
+    viewRoot.querySelectorAll("[data-cancel-project-edit]").forEach((button) => button.addEventListener("click", () => {
+      const form = button.closest("[data-project-update]");
+      form.hidden = true;
+      viewRoot.querySelector(`[data-edit-project="${CSS.escape(form.dataset.projectUpdate)}"]`)?.setAttribute("aria-expanded", "false");
+    }));
     viewRoot.querySelectorAll("[data-open-project]").forEach((button) => button.addEventListener("click", () => setProject(button.dataset.openProject)));
     viewRoot.querySelectorAll("[data-delete-project]").forEach((button) => button.addEventListener("click", () => deleteProject(button.dataset.deleteProject)));
   }
@@ -913,6 +1011,8 @@ function bindBuilder() {
   const setStatus = (message) => {
     if (statusElement?.isConnected) statusElement.textContent = message;
   };
+  let hasUnsavedChanges = false;
+  let editSequence = 0;
   const updateWordCount = () => {
     const counter = viewRoot.querySelector("#manuscript-word-count");
     if (!counter) return;
@@ -929,7 +1029,9 @@ function bindBuilder() {
   let saveInProgress = Promise.resolve(true);
   const save = async () => {
     clearTimeout(saveTimer);
+    if (!hasUnsavedChanges) return saveInProgress;
     const sections = collectSections();
+    const savedSequence = editSequence;
     const operation = saveInProgress.then(async () => {
       setStatus("Saving…");
       try {
@@ -939,7 +1041,10 @@ function bindBuilder() {
         });
         documentRecord.version = result.version;
         documentRecord.content = { sections };
-        setStatus(`Saved · version ${result.version}`);
+        if (editSequence === savedSequence) {
+          hasUnsavedChanges = false;
+          setStatus(`Saved · version ${result.version}`);
+        }
         return true;
       } catch (error) {
         setStatus(`Save failed: ${error.message}`);
@@ -950,6 +1055,8 @@ function bindBuilder() {
     return operation;
   };
   const scheduleSave = () => {
+    hasUnsavedChanges = true;
+    editSequence += 1;
     setStatus("Unsaved changes");
     updateWordCount();
     clearTimeout(saveTimer);
@@ -983,33 +1090,34 @@ function bindBuilder() {
     selection.removeAllRanges();
     selection.addRange(state.savedSelection);
   };
+  const notifyEditorInput = () => {
+    if (state.activeEditor) state.activeEditor.dispatchEvent(new Event("input", { bubbles: true }));
+  };
   viewRoot.querySelectorAll(".editor-toolbar [data-editor-command]").forEach((button) => {
     button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => {
       restoreSelection();
       document.execCommand(button.dataset.editorCommand, false);
-      if (state.activeEditor) {
-        state.activeEditor.dispatchEvent(new Event("input", { bubbles: true }));
-      }
+      notifyEditorInput();
     });
   });
   const blockStyle = viewRoot.querySelector("[data-editor-block]");
   blockStyle.addEventListener("change", () => {
     restoreSelection();
     document.execCommand("formatBlock", false, `<${blockStyle.value}>`);
-    if (state.activeEditor) state.activeEditor.dispatchEvent(new Event("input", { bubbles: true }));
+    notifyEditorInput();
   });
   const fontFamily = viewRoot.querySelector("[data-editor-font]");
   fontFamily.addEventListener("change", () => {
     restoreSelection();
     document.execCommand("fontName", false, fontFamily.value);
-    if (state.activeEditor) state.activeEditor.dispatchEvent(new Event("input", { bubbles: true }));
+    notifyEditorInput();
   });
   const fontSize = viewRoot.querySelector("[data-editor-size]");
   fontSize.addEventListener("change", () => {
     restoreSelection();
     document.execCommand("fontSize", false, fontSize.value);
-    if (state.activeEditor) state.activeEditor.dispatchEvent(new Event("input", { bubbles: true }));
+    notifyEditorInput();
   });
   const fontColor = viewRoot.querySelector("[data-editor-color]");
   fontColor.addEventListener("mousedown", () => {
@@ -1019,7 +1127,61 @@ function bindBuilder() {
   fontColor.addEventListener("change", () => {
     restoreSelection();
     document.execCommand("foreColor", false, fontColor.value);
-    if (state.activeEditor) state.activeEditor.dispatchEvent(new Event("input", { bubbles: true }));
+    notifyEditorInput();
+  });
+  viewRoot.querySelector("[data-insert-link]").addEventListener("mousedown", (event) => event.preventDefault());
+  viewRoot.querySelector("[data-insert-link]").addEventListener("click", () => {
+    const enteredUrl = prompt("Enter the full http(s) URL for this link:");
+    if (enteredUrl === null) return;
+    const url = safeHttpUrl(enteredUrl);
+    if (!url) return notify("Enter a valid http or https URL.", true);
+    restoreSelection();
+    const selection = window.getSelection();
+    if (selection?.toString()) {
+      document.execCommand("createLink", false, url);
+    } else {
+      document.execCommand("insertHTML", false, `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`);
+    }
+    notifyEditorInput();
+  });
+  viewRoot.querySelector("[data-insert-table]").addEventListener("mousedown", (event) => event.preventDefault());
+  viewRoot.querySelector("[data-insert-table]").addEventListener("click", () => {
+    const rowCount = prompt("Number of rows (1-10):", "3");
+    if (rowCount === null) return;
+    const columnCount = prompt("Number of columns (1-10):", "3");
+    if (columnCount === null) return;
+    const rows = Number(rowCount);
+    const columns = Number(columnCount);
+    if (!Number.isInteger(rows) || !Number.isInteger(columns) || rows < 1 || rows > 10 || columns < 1 || columns > 10) {
+      notify("Table dimensions must be whole numbers from 1 to 10.", true);
+      return;
+    }
+    const tableRows = Array.from({ length: rows }, () =>
+      `<tr>${Array.from({ length: columns }, () => "<td><br></td>").join("")}</tr>`).join("");
+    restoreSelection();
+    document.execCommand("insertHTML", false, `<table><tbody>${tableRows}</tbody></table><p><br></p>`);
+    notifyEditorInput();
+  });
+  viewRoot.querySelector("[data-insert-image]").addEventListener("change", (event) => {
+    const file = event.target.files[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type) || file.size > 350_000) {
+      notify("Choose a PNG, JPEG, GIF, or WebP image smaller than 350 KB.", true);
+      return;
+    }
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      if (typeof reader.result !== "string" || !reader.result.startsWith(`data:${file.type};base64,`)) {
+        notify("The image could not be read.", true);
+        return;
+      }
+      restoreSelection();
+      document.execCommand("insertHTML", false, `<img src="${reader.result}" alt="${escapeHtml(file.name)}"><p><br></p>`);
+      notifyEditorInput();
+    });
+    reader.addEventListener("error", () => notify("The image could not be read.", true));
+    reader.readAsDataURL(file);
   });
   document.querySelector("#add-section").addEventListener("click", () => {
     const section = document.createElement("details");
@@ -1041,6 +1203,73 @@ function bindBuilder() {
     }
   });
   const validateButton = document.querySelector("#validate-document");
+  const historyButton = document.querySelector("#toggle-document-history");
+  if (historyButton) historyButton.addEventListener("click", async () => {
+    const historyPanel = document.querySelector("#document-history");
+    const opening = historyPanel.hidden;
+    historyPanel.hidden = !opening;
+    historyButton.setAttribute("aria-expanded", String(opening));
+    if (!opening) return;
+    historyPanel.innerHTML = '<p class="muted">Loading version history…</p>';
+    try {
+      const result = await api(`/api/documents/${encodeURIComponent(documentId)}/versions`);
+      historyPanel.innerHTML = `<h3>Saved versions</h3>${renderDocumentHistory(result.versions)}`;
+      historyPanel.querySelectorAll("[data-preview-version]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const preview = button.closest(".version-item").querySelector(".version-preview");
+          if (!preview.hidden) {
+            preview.hidden = true;
+            button.textContent = "Preview";
+            return;
+          }
+          if (preview.dataset.loaded !== "true") {
+            button.disabled = true;
+            try {
+              const version = await api(`/api/documents/${encodeURIComponent(documentId)}/versions/${button.dataset.previewVersion}`);
+              preview.textContent = documentVersionPreviewText(version.version.content) || "This version is empty.";
+              preview.dataset.loaded = "true";
+            } catch (error) {
+              notify(error.message, true);
+              return;
+            } finally {
+              button.disabled = false;
+            }
+          }
+          preview.hidden = false;
+          button.textContent = "Hide preview";
+        });
+      });
+      historyPanel.querySelectorAll("[data-restore-version]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const version = result.versions.find((item) => item.version_number === Number(button.dataset.restoreVersion));
+          if (!version) return notify("That version is no longer available. Reload the history.", true);
+          if (!confirm(`Restore version ${version.version_number}? Your current draft will be saved as a new version first.`)) return;
+          button.disabled = true;
+          try {
+            if (!await save()) throw new Error("Save your current draft before restoring a version.");
+            const snapshot = await api(`/api/documents/${encodeURIComponent(documentId)}/versions/${button.dataset.restoreVersion}`);
+            const restored = await api(`/api/documents/${encodeURIComponent(documentId)}/autosave`, {
+              method: "PUT",
+              body: jsonBody({ content: snapshot.version.content, version: documentRecord.version }),
+            });
+            documentRecord.version = restored.version;
+            documentRecord.content = snapshot.version.content;
+            await renderView(state.view);
+            notify(`Restored version ${version.version_number} as version ${restored.version}.`);
+          } catch (error) {
+            notify(error.message, true);
+            button.disabled = false;
+          }
+        });
+      });
+    } catch (error) {
+      historyPanel.innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p><button class="button small" type="button" id="retry-document-history">Retry</button>`;
+      historyPanel.querySelector("#retry-document-history").addEventListener("click", () => {
+        historyButton.click();
+        historyButton.click();
+      });
+    }
+  });
   if (validateButton) validateButton.addEventListener("click", async () => {
     try {
       if (!await save()) throw new Error("Save the manuscript before validation.");
@@ -1117,24 +1346,137 @@ function bindAppendices() {
 }
 
 function bindReferences() {
-  document.querySelector("#citation-form").addEventListener("submit", async (event) => {
+  const form = document.querySelector("#citation-form");
+  const sourceType = form.querySelector("#citation-source-type");
+  const fieldVisibility = {
+    journal_article: ["journal", "volume", "issue", "pages"],
+    book: ["publisher", "edition"],
+    webpage: ["website", "month", "day", "source_url"],
+    report: ["publisher", "report_number", "source_url"],
+    book_chapter: ["book_title", "editors", "pages", "publisher"],
+    dissertation: ["institution", "degree_type", "source_url"],
+    newspaper_article: ["journal", "month", "day", "pages", "source_url"],
+  };
+  const updateCitationFields = () => {
+    const visibleFields = new Set(fieldVisibility[sourceType.value] || []);
+    form.querySelectorAll("[data-citation-field]").forEach((field) => {
+      field.hidden = !visibleFields.has(field.dataset.citationField);
+    });
+  };
+  sourceType.addEventListener("change", updateCitationFields);
+  updateCitationFields();
+  document.querySelector("#lookup-citation-doi").addEventListener("click", async () => {
+    const status = document.querySelector("#citation-lookup-status");
+    const doi = form.elements.doi.value.trim();
+    if (!doi) {
+      status.textContent = "Enter a DOI first.";
+      return;
+    }
+    const button = document.querySelector("#lookup-citation-doi");
+    button.disabled = true;
+    status.textContent = "Looking up DOI at Crossref…";
+    try {
+      const result = await api(`/api/citations/lookup?doi=${encodeURIComponent(doi)}`);
+      const source = result.source;
+      sourceType.value = source.source_type;
+      updateCitationFields();
+      const fields = {
+        title: source.title,
+        publication_year: source.publication_year,
+        journal: source.journal,
+        publisher: source.publisher,
+        volume: source.volume,
+        issue: source.issue,
+        pages: source.pages,
+        book_title: source.book_title,
+        doi: source.doi,
+        source_url: source.source_url,
+      };
+      for (const [name, value] of Object.entries(fields)) {
+        if (value !== null && value !== undefined && form.elements[name]) form.elements[name].value = value;
+      }
+      if (Array.isArray(source.authors) && source.authors.length) {
+        form.elements.author_names.value = source.authors
+          .map((author) => `${author.lastName || ""}${author.firstName ? `, ${author.firstName}` : ""}`)
+          .join("\n");
+      }
+      if (source.month) form.elements.month.value = new Date(2000, Number(source.month) - 1).toLocaleString(undefined, { month: "long" });
+      if (source.day) form.elements.day.value = source.day;
+      status.textContent = "Crossref details loaded. Review them before generating the citation.";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget).entries());
-    const authors = values.authors.split(",").map((lastName) => lastName.trim()).filter(Boolean).map((lastName) => ({ lastName }));
+    const parseAuthors = (text) => text.split(/\r?\n|;/).map((line) => line.trim()).filter(Boolean).map((line) => {
+      if (!line.includes(",")) {
+        const words = line.split(/\s+/);
+        return { lastName: words.pop(), firstName: words.join(" ") };
+      }
+      const [lastName, ...givenNames] = line.split(",");
+      return { lastName: lastName.trim(), firstName: givenNames.join(",").trim() };
+    });
     const payload = {
-      authors,
-      publication_year: values.year ? Number(values.year) : null,
+      authors: parseAuthors(values.author_names || ""),
+      editors: parseAuthors(values.editor_names || ""),
+      group_author: values.group_author,
+      publication_year: values.publication_year ? Number(values.publication_year) : null,
       style: values.style,
-      title: values.title || "Title unavailable",
+      source_type: values.source_type,
+      title: values.title,
       journal: values.journal,
+      publisher: values.publisher,
+      volume: values.volume,
+      issue: values.issue,
+      pages: values.pages,
+      edition: values.edition ? `${values.edition}` : "",
+      book_title: values.book_title,
+      website: values.website,
+      report_number: values.report_number,
+      institution: values.institution,
+      degree_type: values.degree_type,
+      month: values.month,
+      day: values.day,
       doi: values.doi,
       source_url: values.source_url,
     };
+    const submitButton = form.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    const output = document.querySelector("#citation-output");
+    output.innerHTML = '<p class="muted">Creating APA 7 citation…</p>';
     try {
       const result = await api("/api/citations/generate", { method: "POST", body: jsonBody(payload) });
-      document.querySelector("#citation-output").textContent = `In-text citation: ${result.in_text}\n\nReference entry: ${result.reference}`;
+      output.innerHTML = `<div class="citation-result"><section><div class="section-heading"><h3>In-text citation</h3><button class="button small" type="button" data-copy-citation="in-text">Copy</button></div><p class="citation-text" id="citation-in-text"></p></section>
+        <section><div class="section-heading"><h3>Reference-list entry</h3><button class="button small" type="button" data-copy-citation="reference">Copy</button></div><p class="reference-entry" id="citation-reference"></p></section>
+        <ul class="citation-warnings"></ul><p class="muted citation-disclaimer">APA 7 formatting aid: verify source details and institution-specific requirements before submitting.</p></div>`;
+      output.querySelector("#citation-in-text").textContent = result.in_text;
+      const referenceElement = output.querySelector("#citation-reference");
+      result.reference_parts.forEach((part) => {
+        const item = part.italic ? document.createElement("em") : document.createTextNode(part.text);
+        if (part.italic) item.textContent = part.text;
+        referenceElement.append(item);
+      });
+      const warningList = output.querySelector(".citation-warnings");
+      warningList.innerHTML = (result.warnings || []).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("");
+      output.querySelectorAll("[data-copy-citation]").forEach((button) => button.addEventListener("click", async () => {
+        const element = button.dataset.copyCitation === "in-text"
+          ? output.querySelector("#citation-in-text")
+          : output.querySelector("#citation-reference");
+        try {
+          await navigator.clipboard.writeText(element.innerText);
+          notify("Citation copied.");
+        } catch (error) {
+          notify(`Could not copy citation: ${error.message}`, true);
+        }
+      }));
     } catch (error) {
-      notify(error.message, true);
+      output.innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`;
+    } finally {
+      submitButton.disabled = false;
     }
   });
   document.querySelector("#copy-references").addEventListener("click", async () => {

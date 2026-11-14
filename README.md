@@ -76,10 +76,10 @@ All state-changing operations require the signed-in session and the `X-CSRF-Toke
 |---|---|
 | Health and account | `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` |
 | Projects | `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/{id}` |
-| Manuscripts | `GET /api/projects/{id}/documents`, `PUT /api/documents/{id}/autosave`, `GET /api/documents/{id}/versions` |
+| Manuscripts | `GET /api/projects/{id}/documents`, `PUT /api/documents/{id}/autosave`, `GET /api/documents/{id}/versions`, `GET /api/documents/{id}/versions/{version_number}` |
 | Writing | `POST /api/writing/grammar`, `/ai-analysis`, `/correct`, `/refine`, `/summarize` |
 | Literature | `GET /api/literature/search?q=...`, `GET/POST /api/projects/{id}/sources`, `POST /api/projects/{id}/sources/import` (RIS/BibTeX), `POST /api/projects/{id}/literature/synthesize`, `DELETE /api/projects/{id}/sources/{source_id}` |
-| Citations | `POST /api/citations/generate`, `GET /api/projects/{id}/references` |
+| Citations | `POST /api/citations/generate` (APA 7 journal articles, books, webpages, reports, edited-book chapters, dissertations, and newspaper articles), `GET /api/citations/lookup?doi=...` (Crossref metadata lookup), `GET /api/projects/{id}/references` |
 | Statistics | `GET /api/statistics/catalog`, `POST /api/statistics/calculate`, `POST /api/statistics/import` (CSV/XLS/XLSX) |
 | Appendices | `GET/POST /api/projects/{id}/appendices`, `GET /api/appendices/{id}/preview` (PDF/image/TXT/CSV), `GET/DELETE /api/appendices/{id}` |
 | Compilation | `POST /api/export/validate`, `POST /api/export/{docx,pdf}` (CSRF-protected), `GET /api/export/{docx,pdf}?project_id=...` (authenticated download) |
@@ -95,7 +95,7 @@ All state-changing operations require the signed-in session and the `X-CSRF-Toke
 │ Writing Lab         │ Editor, literature, statistics, or files  │
 │ Literature Review   │                                          │
 │ Statistical Lab     │                                          │
-│ Document Builder    │                                          │
+│ Manuscript Editor  │                                          │
 │ Appendices          │                                          │
 │ References          │                                          │
 └─────────────────────┴──────────────────────────────────────────┘
@@ -105,9 +105,9 @@ All state-changing operations require the signed-in session and the `X-CSRF-Toke
 
 - Account registration/login, password hashing, private project ownership, CSRF checks on writes, and same-origin API requests are implemented for the local single-user-per-project workflow.
 - Basic request throttling is in-process for login, AI, and scholarly search endpoints. It is a development safeguard, not a substitute for shared rate limiting behind a multi-worker production deployment.
-- Project manuscripts use debounced autosave and immutable prior snapshots. The document builder creates an editable DOCX and a PDF; validation checks basic completeness and is not an academic approval.
+- Project manuscripts use debounced autosave and immutable prior snapshots. The Manuscript Editor includes basic rich-text formatting, links, tables, local image insertion, version previews/restoration, DOCX/PDF export, and basic completeness checks; validation is not an academic approval. Rich content in exports is currently linearized to readable text rather than preserving all editor styling. Project title, field, type, institution, and status can be updated from My Research.
 - Literature results come from Crossref. The app does not invent source metadata; provider records are stored with their source URLs and verification indicator.
-- The literature workspace imports RIS and BibTeX metadata as unverified, deduplicates within a project, and can request a source-grounded Gemini synthesis from saved records.
+- The literature workspace imports RIS and BibTeX metadata as unverified, deduplicates within a project, and can request a source-grounded Gemini synthesis from saved records. The APA 7 citation generator supports common source types, in-text parenthetical/narrative citations, italicized reference components, optional Crossref DOI lookup, and warnings for missing metadata; it is a formatting aid and should be checked against the source and institution's requirements.
 - Statistics support descriptive summaries, Slovin sample-size estimates, Pearson and Spearman correlations, one-sample and paired t-tests, Welch's independent t-test, Mann–Whitney U, one-way ANOVA, Kruskal-Wallis, and chi-square independence tests. CSV, XLS, and XLSX files can be uploaded for temporary analysis; select the sheet and data columns in the UI. Imported rows are not persisted to the project. Statistical output includes assumptions and limitations; it is not a substitute for checking study design, data quality, or specialist review.
 - AI writing features use Google's Gemini `generateContent` API. AI scores are not proof of authorship, and generated text remains a researcher-reviewed suggestion.
 - The saved-source "verified" flag is assigned by the backend only after Crossref confirms its DOI; user-submitted metadata remains unverified.
@@ -131,7 +131,7 @@ All state-changing operations require the signed-in session and the `X-CSRF-Toke
 python -m unittest discover -s tests -v
 ```
 
-Tests use temporary databases and upload folders. They do not contact Gemini or scholarly APIs.
+Tests force SQLite and use temporary databases and upload folders, even when a deployment `DATABASE_URL` is present in `.env`. They do not contact Gemini or scholarly APIs.
 
 ## Deployment notes
 
