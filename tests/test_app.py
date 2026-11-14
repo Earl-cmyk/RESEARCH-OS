@@ -89,6 +89,19 @@ class ResearchOsApiTests(unittest.TestCase):
         second_document = self.client.get(f"/api/projects/{second['id']}/documents").get_json()["documents"][0]
         self.assertNotEqual(first_document["id"], second_document["id"])
 
+    def test_manuscript_can_be_deleted_with_its_project_data(self):
+        self.register()
+        project = self.create_project()
+        document = self.client.get(f"/api/projects/{project['id']}/documents").get_json()["documents"][0]
+        deleted = self.client.delete(
+            f"/api/projects/{project['id']}",
+            headers=self.write_headers(),
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.get_json())
+        self.assertEqual(self.client.get(f"/api/projects/{project['id']}").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/documents/{document['id']}/versions").status_code, 404)
+        self.assertEqual(self.client.get("/api/projects").get_json()["projects"], [])
+
     def test_project_can_be_updated_and_update_is_private(self):
         self.register()
         project = self.create_project()
@@ -273,7 +286,10 @@ class ResearchOsApiTests(unittest.TestCase):
                     {"id": "outcome", "kind": "ellipse", "label": "Performance", "body": "Outcome",
                      "x": 500, "y": 120, "width": 240, "height": 120, "fill": "#fde9ee", "color": "#30242a"},
                 ],
-                "edges": [{"id": "link", "from": "study", "to": "outcome", "label": "Proposed association"}],
+                "edges": [{
+                    "id": "link", "from": "study", "to": "outcome", "label": "Proposed association",
+                    "style": "dashed", "direction": "both",
+                }],
             },
         }
         created = self.client.post(
@@ -284,6 +300,8 @@ class ResearchOsApiTests(unittest.TestCase):
         self.assertEqual(created.status_code, 201, created.get_json())
         saved = created.get_json()["board"]
         self.assertEqual(saved["diagram"]["edges"][0]["from"], "study")
+        self.assertEqual(saved["diagram"]["edges"][0]["style"], "dashed")
+        self.assertEqual(saved["diagram"]["edges"][0]["direction"], "both")
         self.assertEqual(saved["manuscript_section"], board["manuscript_section"])
         listed = self.client.get(f"/api/projects/{project['id']}/frameworks")
         self.assertEqual(listed.get_json()["boards"][0]["id"], saved["id"])
@@ -299,6 +317,13 @@ class ResearchOsApiTests(unittest.TestCase):
         self.assertEqual(updated.get_json()["board"]["title"], "Updated learning model")
         self.assertEqual(updated.get_json()["board"]["diagram"]["nodes"][0]["label"], "Study routine")
         self.assertEqual(updated.get_json()["board"]["manuscript_section"], "Updated draft.")
+        board["diagram"]["edges"][0]["style"] = "zigzag"
+        invalid_style = self.client.put(
+            f"/api/frameworks/{saved['id']}",
+            json=board,
+            headers=self.write_headers(),
+        )
+        self.assertEqual(invalid_style.status_code, 400)
         removed = self.client.delete(f"/api/frameworks/{saved['id']}", headers=self.write_headers())
         self.assertEqual(removed.status_code, 200)
         self.assertEqual(self.client.get(f"/api/projects/{project['id']}/frameworks").get_json()["boards"], [])
@@ -869,6 +894,27 @@ class ResearchOsApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.get_json()["error"]["code"], "ai_service_unavailable")
         self.assertNotIn("GEMINI_API_KEY", response.get_data(as_text=True))
+
+    def test_writing_pattern_analysis_includes_grammar_review(self):
+        self.register()
+        result = {
+            "likelihood": 42,
+            "label": "Mixed signals",
+            "patterns": ["Repeated sentence structures"],
+            "sentences": [],
+            "issues": [{
+                "original": "They was",
+                "category": "Grammar",
+                "explanation": "Subject and verb do not agree.",
+                "suggestion": "They were",
+                "severity": "medium",
+            }],
+        }
+        with patch("app.ask_json", return_value=result) as ask_json:
+            response = self.client.post("/api/writing/ai-analysis", json={"text": "They was ready."})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()["issues"][0]["suggestion"], "They were")
+        self.assertIn("grammar or spelling problems", ask_json.call_args.args[0])
 
     def test_ai_service_parses_json_from_generate_content(self):
         response = type("Response", (), {"text": '{"draft":"A sample research draft."}'})()

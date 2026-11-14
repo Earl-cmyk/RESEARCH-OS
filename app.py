@@ -795,10 +795,12 @@ def writing_analysis():
     data = json_body()
     text = clean_text(data.get("text"), "Text", MAX_TEXT_CHARS, required=True)
     prompt = (
-        "Assess writing patterns sometimes associated with generated prose. The result is "
-        "probabilistic and is not proof of authorship. Return JSON with likelihood from 0 to 100, "
-        "label, patterns array, and sentences array of {text, score, reasons}. Do not claim "
-        "Gemini can determine authorship."
+        "Assess writing patterns sometimes associated with generated prose and identify clear "
+        "grammar or spelling problems. The result is probabilistic and is not proof of authorship. "
+        "Return JSON with likelihood from 0 to 100, label, patterns array, sentences array of "
+        "{text, score, reasons}, and issues array of {original (exact source substring), category, "
+        "explanation, suggestion, severity}. Only report well-supported grammar issues. Do not "
+        "claim Gemini can determine authorship."
     )
     return call_ai(prompt, text, "writing_analysis")
 
@@ -1117,11 +1119,19 @@ def clean_framework_diagram(value: Any) -> dict[str, Any]:
         if edge_id in edge_ids or start not in node_ids or end not in node_ids:
             raise ValueError("Framework connections must have unique IDs and connect existing shapes.")
         edge_ids.add(edge_id)
+        line_style = edge.get("style", "solid")
+        direction = edge.get("direction", "forward")
+        if not isinstance(line_style, str) or line_style not in {"solid", "dashed", "dotted"}:
+            raise ValueError("Choose a supported framework connection style.")
+        if not isinstance(direction, str) or direction not in {"forward", "backward", "both"}:
+            raise ValueError("Choose a supported framework arrow direction.")
         cleaned_edges.append({
             "id": edge_id,
             "from": start,
             "to": end,
             "label": clean_text(edge.get("label", ""), "Connection label", 240),
+            "style": line_style,
+            "direction": direction,
         })
     return {"nodes": cleaned_nodes, "edges": cleaned_edges}
 

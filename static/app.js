@@ -15,7 +15,10 @@ const state = {
   frameworkBoards: [],
   frameworkBoard: null,
   frameworkSelectedNode: null,
+  frameworkSelectedEdge: null,
   frameworkConnectFrom: null,
+  pendingFrameworkDrafts: [],
+  frameworkGrid: true,
   frameworkZoom: 1,
 };
 
@@ -107,7 +110,9 @@ function showApp() {
 function setAuthMode(mode) {
   state.authMode = mode;
   document.querySelectorAll("[data-auth-mode]").forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.authMode === mode);
+    const active = tab.dataset.authMode === mode;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
   });
   document.querySelector("#name-field").hidden = mode !== "register";
   const password = document.querySelector('#auth-form [name="password"]');
@@ -170,6 +175,7 @@ function setProject(projectId, nextView = state.view) {
   state.frameworkBoards = [];
   state.frameworkBoard = null;
   state.frameworkSelectedNode = null;
+  state.frameworkSelectedEdge = null;
   state.frameworkConnectFrom = null;
   if (state.project) localStorage.setItem("research-os-project", state.project.id);
   renderProjectSelect();
@@ -214,7 +220,10 @@ function updateHeader(view) {
   document.querySelector("#page-kicker").textContent = values[0];
   document.querySelector("#page-title").textContent = values[1];
   document.querySelectorAll(".nav-item[data-view]").forEach((item) => {
-    item.classList.toggle("active", item.dataset.view === view);
+    const active = item.dataset.view === view;
+    item.classList.toggle("active", active);
+    if (active) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
   });
 }
 
@@ -230,6 +239,7 @@ async function renderView(view) {
     viewRoot.innerHTML = '<div class="empty-state">Loading your project…</div>';
     try {
       await loadProjectData(view === "framework");
+      if (view === "builder") await syncPendingFrameworkDrafts();
     } catch (error) {
       if (renderToken !== state.renderToken) return;
       viewRoot.innerHTML = `<div class="empty-state"><p>${escapeHtml(error.message)}</p><button class="button" id="retry-view">Retry</button></div>`;
@@ -270,7 +280,7 @@ function setSidebarCollapsed(collapsed) {
 
 function renderNoProject() {
   return `<div class="welcome"><div><p class="eyebrow">START HERE</p><h2>Make room for your next research idea.</h2><p>Create a manuscript to organize your writing, literature, and research materials.</p></div></div>
-    <div class="panel" style="margin-top:16px"><h2>Create your first manuscript</h2>${projectForm()}</div>`;
+    <div class="panel create-manuscript-panel"><h2>Create your first manuscript</h2>${projectForm()}</div>`;
 }
 
 function projectForm() {
@@ -321,7 +331,7 @@ function renderDashboard() {
       ${toolCard("Statistical Lab", "Run deterministic descriptive and inferential calculations with assumptions.", "statistics", "Open statistical tools")}
       ${toolCard("APA References", "Review a generated reference list and build in-text citations.", "references", "Manage references")}
     </div>
-    <div class="panel" style="margin-top:20px"><h2>Create another manuscript</h2><p class="muted">Each manuscript has its own writing, sources, appendices, and research materials.</p>${projectForm()}</div>`;
+    <div class="panel create-manuscript-panel"><h2>Create another manuscript</h2><p class="muted">Each manuscript has its own writing, sources, appendices, and research materials.</p>${projectForm()}</div>`;
 }
 
 function cleanEditorText(value) {
@@ -380,7 +390,7 @@ function renderManuscriptEditor(title, includeExports = true) {
     .filter(Boolean)
     .length;
   const exportTools = includeExports
-    ? '<button class="button" type="button" id="toggle-document-history" aria-expanded="false">Version history</button><button class="button" id="validate-document">Validate</button><button class="button" data-export="pdf">Export PDF</button><button class="button primary" data-export="docx">Export DOCX</button>'
+    ? '<button class="button danger" type="button" id="delete-current-manuscript">Delete manuscript</button><button class="button" type="button" id="toggle-document-history" aria-expanded="false">Version history</button><button class="button" id="validate-document">Validate</button><button class="button" data-export="pdf">Export PDF</button><button class="button primary" data-export="docx">Export DOCX</button>'
     : '<span class="small-label">Autosaves to this project</span>';
   return `<div class="docs-editor-shell">
     <header class="docs-filebar">
@@ -394,6 +404,17 @@ function renderManuscriptEditor(title, includeExports = true) {
     ${includeExports ? '<div id="document-validation" class="notice" hidden></div>' : ""}
     ${includeExports ? '<section id="document-history" class="document-history" aria-live="polite" hidden></section>' : ""}
     <div class="docs-toolbar-wrap">${editorToolbar()}</div>
+    <div id="table-insert-dialog" class="editor-dialog-backdrop" hidden>
+      <form id="table-insert-form" class="editor-dialog" role="dialog" aria-modal="true" aria-labelledby="table-dialog-title">
+        <h2 id="table-dialog-title">Insert table</h2>
+        <p>Choose the number of rows and columns. The first row will be editable column headings.</p>
+        <div class="form-grid">
+          <label>Rows<input name="rows" type="number" min="1" max="10" value="3" required></label>
+          <label>Columns<input name="columns" type="number" min="1" max="10" value="3" required></label>
+        </div>
+        <div class="toolbar"><button class="button primary" type="submit">Insert table</button><button class="button" type="button" id="cancel-table-insert">Cancel</button></div>
+      </form>
+    </div>
     <div class="docs-statusbar"><span id="save-status" role="status">All changes saved</span><span class="docs-status-divider"></span><span><strong id="manuscript-word-count">${wordCount.toLocaleString()}</strong> words</span><span class="spacer"></span><button class="button small" id="add-section" type="button">＋ Add section</button></div>
     <div class="docs-content-layout">
       <aside class="docs-outline" aria-label="Document outline">
@@ -401,7 +422,7 @@ function renderManuscriptEditor(title, includeExports = true) {
         <nav>${sections.map((section, index) => `<button type="button" data-outline-index="${index}">${escapeHtml(section.title || `Section ${index + 1}`)}</button>`).join("")}</nav>
       </aside>
       <div class="docs-canvas" role="region" aria-label="Document">
-        <div id="document-sections" class="docs-page">${sections.map((section, index) => `<details class="section-editor" open id="document-section-${index}" data-section-index="${index}">
+        <div id="document-sections" class="docs-page"><h1 class="docs-document-title">${escapeHtml(state.project.project_title)}</h1>${sections.map((section, index) => `<details class="section-editor" open id="document-section-${index}" data-section-index="${index}" data-heading-level="${Number(section.level || 1)}">
           <summary><span class="section-title">${escapeHtml(section.title || `Section ${index + 1}`)}</span></summary>
           <div class="section-meta"><label>Section heading<input class="section-heading-input" maxlength="240" value="${escapeHtml(section.title || "")}"></label><label>Style<select class="section-level" aria-label="Heading level">${[1, 2, 3].map((level) => `<option value="${level}" ${Number(section.level || 1) === level ? "selected" : ""}>Heading ${level}</option>`).join("")}</select></label></div>
           <div class="section-content editor" contenteditable="true" role="textbox" aria-label="${escapeHtml(section.title || `Section ${index + 1}`)} content" aria-multiline="true" spellcheck="true">${editorContent(section.content)}</div>
@@ -430,11 +451,11 @@ function renderProjects() {
     </form>
     <div class="card-footer"><span class="small-label">${Number(project.source_count) || 0} saved sources</span><div class="toolbar">
       <button class="button small" data-open-project="${escapeHtml(project.id)}">Open project</button>
-      <button class="button small danger" data-delete-project="${escapeHtml(project.id)}">Delete</button>
+      <button class="button small danger" data-delete-project="${escapeHtml(project.id)}">Delete manuscript</button>
     </div></div></article>`).join("");
   return `<div class="section-heading"><h2>Your manuscripts</h2></div>
     ${state.projects.length ? `<div class="card-grid">${cards}</div>` : '<div class="empty-state">No projects yet. Create one to begin.</div>'}
-    <div class="panel" style="margin-top:20px"><h2>Create a manuscript</h2>${projectForm()}</div>`;
+    <div class="panel create-manuscript-panel"><h2>Create a manuscript</h2>${projectForm()}</div>`;
 }
 
 function renderDocumentHistory(versions) {
@@ -463,20 +484,27 @@ function documentVersionPreviewText(content) {
 }
 
 function renderWriting() {
-  return `<div class="panel"><div class="section-heading"><div><h2>Writing workspace</h2><p class="muted">AI-assisted suggestions are probabilistic; inspect and accept changes yourself.</p></div></div>
-    <label>Text to analyze<textarea id="writing-input" class="editor" maxlength="30000" placeholder="Paste or type your research text here…"></textarea></label>
-    <div class="toolbar">
+  return `<div class="writing-lab">
+    <header class="writing-lab-heading"><p class="eyebrow">WRITING TOOLS</p><h2>Review your draft</h2>
+      <p class="muted">AI-assisted suggestions are probabilistic. Review every change before using it.</p></header>
+    <label class="writing-input-label" for="writing-input">Draft text</label>
+    <div class="writing-document-stage"><div class="writing-document-page writing-input-page">
+      <textarea id="writing-input" class="writing-document-input" maxlength="30000" aria-label="Draft text to analyze" placeholder="Paste or type your research text here…" spellcheck="true"></textarea>
+    </div></div>
+    <p class="muted writing-selection-help">To focus Suggest corrections on a passage, select it in your draft first. With no selection, the full draft is checked.</p>
+    <div class="toolbar writing-actions" role="toolbar" aria-label="Writing tools">
       <button class="button primary" data-writing-action="grammar">Check grammar</button>
       <button class="button" data-writing-action="correct">Suggest corrections</button>
       <button class="button" data-writing-action="refine">Refine writing</button>
       <button class="button" data-writing-action="summary">Summarize</button>
       <button class="button" data-writing-action="analysis">Analyze writing patterns</button>
     </div>
-    <div id="writing-options" class="form-grid" style="margin-top:15px">
+    <div id="writing-options" class="form-grid writing-options">
       <label id="style-option">Writing style<select id="writing-style"><option>Formal academic</option><option>Concise academic</option><option>Explanatory academic</option><option>Technical</option><option>Simple and direct</option></select></label>
       <label id="length-option">Summary length<select id="summary-length"><option>short</option><option selected>medium</option><option>comprehensive</option></select></label>
     </div>
-    <div id="writing-result" class="result-box" aria-live="polite"></div></div>`;
+    <div id="writing-result" class="writing-result" aria-live="polite"></div>
+  </div>`;
 }
 
 function renderFramework() {
@@ -507,7 +535,7 @@ function renderFramework() {
           <button class="button primary wide" type="submit">✦ Generate diagram</button>
         </form>
         <div id="framework-ai-status" class="fw-ai-status" aria-live="polite"></div>
-        <button class="button small fw-insert-manuscript" id="insert-framework" type="button" ${state.frameworkBoard.manuscript_section ? "" : "disabled"}>Add write-up to manuscript</button>
+        <p class="fw-sync-note">Generated framework write-ups are added as a new manuscript section when you open the Manuscript Editor.</p>
       </aside>
       <section class="framework-board" aria-label="Framework whiteboard">
         <div class="fw-toolbar" role="toolbar" aria-label="Whiteboard tools">
@@ -519,7 +547,8 @@ function renderFramework() {
           </div>
           <span class="fw-toolbar-divider"></span>
           <button type="button" class="fw-tool ${state.frameworkConnectFrom !== null ? "active" : ""}" id="framework-connect" title="Connect two shapes">↗ Connect</button>
-          <button type="button" class="fw-tool danger" id="framework-delete-node" title="Delete selected shape">⌫ Delete</button>
+          <button type="button" class="fw-tool ${state.frameworkGrid ? "active" : ""}" id="framework-toggle-grid" title="Toggle canvas grid" aria-pressed="${state.frameworkGrid}">▦ Grid</button>
+          <button type="button" class="fw-tool danger" id="framework-delete-node" title="Delete selected shape or connection">⌫ Delete</button>
           <span class="fw-toolbar-spacer"></span>
           <button type="button" class="fw-tool" id="framework-zoom-out" aria-label="Zoom out">−</button><span id="framework-zoom-label">100%</span><button type="button" class="fw-tool" id="framework-zoom-in" aria-label="Zoom in">＋</button>
         </div>
@@ -541,10 +570,10 @@ function renderLiterature() {
   return `${citationGenerator()}
     <div class="panel"><h2>Search scholarly literature</h2><p>Search Crossref's bibliographic records. Metadata is returned by the source provider; abstracts may be unavailable.</p>
     <form id="literature-form" class="toolbar"><input name="q" required maxlength="500" placeholder="Topic, title, keyword, or author"><button class="button primary" type="submit">Search Crossref</button></form>
-    <h3 style="margin-top:20px">Import references</h3><p>Import RIS or BibTeX exports from a reference manager. Imported metadata is unverified until checked against a provider record.</p>
+    <h3 class="literature-import-heading">Import references</h3><p>Import RIS or BibTeX exports from a reference manager. Imported metadata is unverified until checked against a provider record.</p>
     <form id="reference-import-form" class="toolbar"><label class="file-picker-label">Reference file${filePicker("file", ".ris,.bib,.bibtex", true)}</label><button class="button" type="submit">Import references</button></form>
     <div id="reference-import-status" class="result-meta" aria-live="polite"></div>
-    <div id="literature-results" class="result-list" style="margin-top:16px"></div></div>
+    <div id="literature-results" class="result-list literature-results"></div></div>
     <div class="section-heading"><h2>Saved sources (${state.sources.length})</h2><button class="button primary" id="synthesize-literature" ${state.sources.length ? "" : "disabled"}>Draft literature synthesis</button></div>
     <p class="muted">AI-generated synthesis is a researcher-reviewed draft based only on saved source metadata and available abstracts.</p>
     <div id="literature-synthesis" class="result-list"></div>
@@ -630,12 +659,12 @@ function renderStatistics() {
     <div id="statistics-import-status" class="result-meta" aria-live="polite"></div>
     <label id="statistics-sheet-label" hidden>Worksheet<select id="statistics-sheet"></select></label>
     <div id="statistics-preview" class="result-box" hidden></div></div>
-    <div class="panel" style="margin-top:16px"><h2>Statistical calculation</h2><p>Calculations are deterministic. Review each method’s assumptions and the suitability of your data.</p>
+    <div class="panel statistics-calculation"><h2>Statistical calculation</h2><p>Calculations are deterministic. Review each method’s assumptions and the suitability of your data.</p>
     <div class="form-grid"><label>Method<select id="stat-method">${methods.map(([value, name]) =>
       `<option value="${value}">${name}</option>`).join("")}</select></label>
     <label>Data entry<select id="stat-source"><option value="manual">Enter values manually</option><option value="spreadsheet" ${state.statisticsTable ? "" : "disabled"}>Use imported spreadsheet</option></select></label></div>
     <div id="stat-inputs"></div><button class="button primary" id="run-stat">Calculate</button>
-    <div id="stat-result" style="margin-top:16px"></div></div>`;
+    <div id="stat-result" class="stat-result"></div></div>`;
 }
 
 function needsAlpha(method) {
@@ -869,8 +898,10 @@ function bindFramework() {
       width: kind === "text" ? 280 : 240, height: kind === "text" ? 88 : 120,
       fill: kind === "text" ? "#fff8f9" : "#ffffff", color: "#30242a",
     };
+    fitFrameworkNode(node);
     board.diagram.nodes.push(node);
     state.frameworkSelectedNode = node.id;
+    state.frameworkSelectedEdge = null;
     draw();
     renderFrameworkInspector();
     markDirty();
@@ -904,6 +935,7 @@ function bindFramework() {
       };
     }
     state.frameworkSelectedNode = null;
+    state.frameworkSelectedEdge = null;
     state.frameworkConnectFrom = null;
     renderView("framework");
   };
@@ -935,12 +967,21 @@ function bindFramework() {
   });
   viewRoot.querySelector("#framework-connect").addEventListener("click", () => {
     state.frameworkConnectFrom = null;
+    state.frameworkSelectedEdge = null;
     svg.classList.toggle("connecting");
     const enabled = svg.classList.contains("connecting");
     viewRoot.querySelector("#framework-connect").classList.toggle("active", enabled);
     aiStatus.textContent = enabled ? "Select the starting shape, then the destination shape." : "";
   });
   viewRoot.querySelector("#framework-delete-node").addEventListener("click", () => {
+    if (state.frameworkSelectedEdge) {
+      board.diagram.edges = board.diagram.edges.filter((edge) => edge.id !== state.frameworkSelectedEdge);
+      state.frameworkSelectedEdge = null;
+      draw();
+      renderFrameworkInspector();
+      markDirty();
+      return;
+    }
     const selected = state.frameworkSelectedNode;
     if (!selected) return notify("Select a shape to remove.", true);
     board.diagram.nodes = board.diagram.nodes.filter((node) => node.id !== selected);
@@ -953,6 +994,12 @@ function bindFramework() {
   viewRoot.querySelector("#framework-zoom-out").addEventListener("click", () => setZoom(state.frameworkZoom - 0.1));
   viewRoot.querySelector("#framework-zoom-in").addEventListener("click", () => setZoom(state.frameworkZoom + 0.1));
   viewRoot.querySelector("#framework-reset-zoom").addEventListener("click", () => setZoom(1));
+  viewRoot.querySelector("#framework-toggle-grid").addEventListener("click", (event) => {
+    state.frameworkGrid = !state.frameworkGrid;
+    event.currentTarget.classList.toggle("active", state.frameworkGrid);
+    event.currentTarget.setAttribute("aria-pressed", String(state.frameworkGrid));
+    draw();
+  });
   viewRoot.querySelector("#framework-new-board").addEventListener("click", () => selectBoard(""));
   viewRoot.querySelector("#framework-save-board").addEventListener("click", async () => {
     syncFields();
@@ -1002,6 +1049,7 @@ function bindFramework() {
       state.frameworkBoards = state.frameworkBoards.filter((item) => item.id !== board.id);
       state.frameworkBoard = emptyFrameworkBoard();
       state.frameworkSelectedNode = null;
+      state.frameworkSelectedEdge = null;
       renderView("framework");
       notify("Framework board deleted.");
     } catch (error) {
@@ -1029,9 +1077,17 @@ function bindFramework() {
         manuscript_section: result.manuscript_section,
       });
       state.frameworkSelectedNode = null;
+      state.frameworkSelectedEdge = null;
       viewRoot.querySelector("#framework-board-title").value = result.title;
       viewRoot.querySelector("#framework-board-select").value = "";
-      aiStatus.textContent = `${result.framework_type === "theoretical" ? "Theoretical" : "Conceptual"} draft ready. Move, edit, and arrange each shape, then save the board.`;
+      if (result.manuscript_section?.trim()) {
+        state.pendingFrameworkDrafts.push({
+          projectId: state.project.id,
+          framework_type: result.framework_type,
+          manuscript_section: result.manuscript_section,
+        });
+      }
+      aiStatus.textContent = `${result.framework_type === "theoretical" ? "Theoretical" : "Conceptual"} draft ready. Move and edit the shapes, then save the board. Its write-up will be added to the manuscript the next time you open the editor.`;
       draw();
       renderFrameworkInspector();
       markDirty();
@@ -1041,17 +1097,19 @@ function bindFramework() {
       button.disabled = false;
     }
   });
-  viewRoot.querySelector("#insert-framework").addEventListener("click", () => {
-    syncFields();
-    if (board.manuscript_section) insertFramework({
-      framework_type: board.framework_type,
-      manuscript_section: board.manuscript_section,
-    });
-  });
   svg.addEventListener("pointerdown", (event) => {
+    const edgeTarget = event.target.closest("[data-edge-id]");
+    if (edgeTarget) {
+      state.frameworkSelectedNode = null;
+      state.frameworkSelectedEdge = edgeTarget.dataset.edgeId;
+      renderFrameworkInspector();
+      draw();
+      return;
+    }
     const target = event.target.closest("[data-node-id]");
     if (!target) {
       state.frameworkSelectedNode = null;
+      state.frameworkSelectedEdge = null;
       renderFrameworkInspector();
       draw();
       return;
@@ -1069,6 +1127,7 @@ function bindFramework() {
           } else {
             board.diagram.edges.push({
               id: randomId(), from: state.frameworkConnectFrom, to: nodeId, label: "",
+              style: "solid", direction: "forward",
             });
             markDirty();
           }
@@ -1083,6 +1142,7 @@ function bindFramework() {
       return;
     }
     state.frameworkSelectedNode = nodeId;
+    state.frameworkSelectedEdge = null;
     const node = board.diagram.nodes.find((item) => item.id === nodeId);
     const point = pointFromEvent(event);
     drag = { id: nodeId, x: point.x, y: point.y, nodeX: node.x, nodeY: node.y, moved: false };
@@ -1110,13 +1170,12 @@ function bindFramework() {
     const target = event.target.closest("[data-node-id]");
     if (!target) return;
     const node = board.diagram.nodes.find((item) => item.id === target.dataset.nodeId);
-    const label = prompt("Edit shape text:", node.label);
-    if (label === null) return;
-    node.label = label.trim().slice(0, 240) || "Untitled";
     state.frameworkSelectedNode = node.id;
     draw();
     renderFrameworkInspector();
-    markDirty();
+    const labelInput = viewRoot.querySelector("#fw-node-label");
+    labelInput.focus();
+    labelInput.select();
   });
   svg.addEventListener("wheel", (event) => {
     if (!event.ctrlKey && !event.metaKey) return;
@@ -1143,7 +1202,7 @@ function frameworkDiagramFromResult(result, randomId) {
     const kind = /outcome|dependent|result/.test(role)
       ? "ellipse"
       : /mediator|moderator/.test(role) ? "diamond" : "rectangle";
-    return {
+    const node = {
       id: randomId(),
       kind,
       label: construct.name.slice(0, 240),
@@ -1155,14 +1214,18 @@ function frameworkDiagramFromResult(result, randomId) {
       fill: kind === "ellipse" ? "#fde9ee" : kind === "diamond" ? "#fff1df" : "#ffffff",
       color: "#30242a",
     };
+    fitFrameworkNode(node);
+    return node;
   });
   if (result.theoretical_basis) {
-    nodes.push({
+    const node = {
       id: randomId(), kind: "text", label: "Theoretical basis",
       body: result.theoretical_basis.slice(0, 1000),
       x: 1020, y: 120, width: 280, height: 150,
       fill: "#fff8f9", color: "#30242a",
-    });
+    };
+    fitFrameworkNode(node);
+    nodes.push(node);
   }
   const findNode = (name) => {
     const query = name.trim().toLowerCase();
@@ -1177,6 +1240,8 @@ function frameworkDiagramFromResult(result, randomId) {
       from: from.id,
       to: to.id,
       label: relationship.description.slice(0, 120),
+      style: "solid",
+      direction: "forward",
     }] : [];
   });
   return { nodes, edges };
@@ -1188,12 +1253,12 @@ function renderFrameworkSvg(svg) {
   const ns = "http://www.w3.org/2000/svg";
   svg.replaceChildren();
   const defs = document.createElementNS(ns, "defs");
-  defs.innerHTML = `<pattern id="fw-grid" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.2" fill="#d9d4d7"/></pattern><marker id="fw-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9f6172"/></marker><filter id="fw-shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#60404b" flood-opacity=".12"/></filter>`;
+  defs.innerHTML = `<pattern id="fw-grid" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.2" fill="#d9d4d7"/></pattern><marker id="fw-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9f6172"/></marker><marker id="fw-arrow-start" markerWidth="10" markerHeight="10" refX="2" refY="5" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#9f6172"/></marker><filter id="fw-shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#60404b" flood-opacity=".12"/></filter>`;
   svg.append(defs);
   const background = document.createElementNS(ns, "rect");
   background.setAttribute("width", "1400");
   background.setAttribute("height", "900");
-  background.setAttribute("fill", "url(#fw-grid)");
+  background.setAttribute("fill", state.frameworkGrid ? "url(#fw-grid)" : "none");
   svg.append(background);
   const nodeById = new Map(board.diagram.nodes.map((node) => [node.id, node]));
   for (const edge of board.diagram.edges) {
@@ -1227,8 +1292,15 @@ function renderFrameworkSvg(svg) {
     const { x: x1, y: y1 } = start;
     const { x: x2, y: y2 } = end;
     const line = document.createElementNS(ns, "line");
+    const arrowDirection = ["forward", "backward", "both"].includes(edge.direction) ? edge.direction : "forward";
+    const lineStyle = ["solid", "dashed", "dotted"].includes(edge.style) ? edge.style : "solid";
+    const dashArray = lineStyle === "dashed" ? "10 7" : lineStyle === "dotted" ? "2 6" : "";
     for (const [name, value] of Object.entries({
-      x1, y1, x2, y2, stroke: "#9f6172", "stroke-width": "3", "marker-end": "url(#fw-arrow)",
+      x1, y1, x2, y2, stroke: "#9f6172", "stroke-width": "3",
+      "marker-start": arrowDirection === "backward" || arrowDirection === "both" ? "url(#fw-arrow-start)" : "",
+      "marker-end": arrowDirection === "forward" || arrowDirection === "both" ? "url(#fw-arrow)" : "",
+      "stroke-dasharray": dashArray,
+      class: `fw-edge ${state.frameworkSelectedEdge === edge.id ? "selected" : ""}`,
       "data-edge-id": edge.id,
     })) line.setAttribute(name, String(value));
     svg.append(line);
@@ -1237,6 +1309,7 @@ function renderFrameworkSvg(svg) {
       label.setAttribute("x", String((x1 + x2) / 2));
       label.setAttribute("y", String((y1 + y2) / 2 - 8));
       label.setAttribute("class", "fw-edge-label");
+      label.setAttribute("data-edge-id", edge.id);
       label.textContent = edge.label;
       svg.append(label);
     }
@@ -1274,7 +1347,7 @@ function renderFrameworkSvg(svg) {
     const bodyLines = wrapFrameworkText(node.body || "", Math.max(18, Math.floor(node.width / 8)));
     const totalLines = labelLines.length + bodyLines.length;
     const startY = node.height / 2 - totalLines * 9 + 12;
-    [...labelLines, ...bodyLines].slice(0, 6).forEach((line, index) => {
+    [...labelLines, ...bodyLines].forEach((line, index) => {
       const text = document.createElementNS(ns, "text");
       text.setAttribute("x", String(node.width / 2));
       text.setAttribute("y", String(startY + index * 19));
@@ -1294,21 +1367,52 @@ function wrapFrameworkText(value, width) {
   const words = value.split(/\s+/);
   const lines = [];
   let line = "";
-  for (const word of words) {
-    if (line && `${line} ${word}`.length > width) {
+  for (const rawWord of words) {
+    if (rawWord.length > width) {
+      if (line) lines.push(line);
+      const parts = rawWord.match(new RegExp(`.{1,${width}}`, "g")) || [rawWord];
+      lines.push(...parts.slice(0, -1));
+      line = parts[parts.length - 1];
+    } else if (line && `${line} ${rawWord}`.length > width) {
       lines.push(line);
-      line = word;
+      line = rawWord;
     } else {
-      line = line ? `${line} ${word}` : word;
+      line = line ? `${line} ${rawWord}` : rawWord;
     }
   }
   if (line) lines.push(line);
-  return lines.slice(0, 4);
+  return lines;
+}
+
+function fitFrameworkNode(node) {
+  const labelLines = wrapFrameworkText(node.label || "", 64);
+  const bodyLines = wrapFrameworkText(node.body || "", 88);
+  const longestLine = Math.max(0, ...labelLines.concat(bodyLines).map((line) => line.length));
+  node.width = Math.max(180, Math.min(800, Math.round(longestLine * 8 + 48)));
+  const fittedLabelLines = wrapFrameworkText(node.label || "", Math.max(12, Math.floor(node.width / 10)));
+  const fittedBodyLines = wrapFrameworkText(node.body || "", Math.max(18, Math.floor(node.width / 8)));
+  node.height = Math.max(100, Math.min(500, (fittedLabelLines.length + fittedBodyLines.length) * 19 + 48));
 }
 
 function renderFrameworkInspector() {
   const root = viewRoot.querySelector("#framework-inspector-content");
   if (!root) return;
+  const edge = state.frameworkBoard?.diagram.edges.find((item) => item.id === state.frameworkSelectedEdge);
+  if (edge) {
+    root.innerHTML = `<p class="fw-inspector-label">CONNECTION</p>
+      <label>Relationship label<input id="fw-edge-label" maxlength="240" value="${escapeHtml(edge.label || "")}" placeholder="Describe the relationship"></label>
+      <label>Line style<select id="fw-edge-style"><option value="solid" ${edge.style === "solid" || !edge.style ? "selected" : ""}>Solid</option><option value="dashed" ${edge.style === "dashed" ? "selected" : ""}>Dashed</option><option value="dotted" ${edge.style === "dotted" ? "selected" : ""}>Dotted</option></select></label>
+      <label>Arrow direction<select id="fw-edge-direction"><option value="forward" ${edge.direction === "forward" || !edge.direction ? "selected" : ""}>Forward</option><option value="backward" ${edge.direction === "backward" ? "selected" : ""}>Backward</option><option value="both" ${edge.direction === "both" ? "selected" : ""}>Both ends</option></select></label>`;
+    const updateEdge = (key, value) => {
+      edge[key] = value;
+      renderFrameworkSvg(viewRoot.querySelector("#framework-svg"));
+      viewRoot.querySelector("#framework-save-status").textContent = state.frameworkBoard.id ? "Unsaved changes" : "Unsaved board";
+    };
+    root.querySelector("#fw-edge-label").addEventListener("input", (event) => updateEdge("label", event.target.value));
+    root.querySelector("#fw-edge-style").addEventListener("change", (event) => updateEdge("style", event.target.value));
+    root.querySelector("#fw-edge-direction").addEventListener("change", (event) => updateEdge("direction", event.target.value));
+    return;
+  }
   const node = state.frameworkBoard?.diagram.nodes.find((item) => item.id === state.frameworkSelectedNode);
   if (!node) {
     root.innerHTML = '<p class="fw-inspector-empty">Select a shape to edit its text, shape, and colors.</p>';
@@ -1320,6 +1424,7 @@ function renderFrameworkInspector() {
     <div class="fw-color-row"><label>Fill<input id="fw-node-fill" type="color" value="${escapeHtml(node.fill)}"></label><label>Text color<input id="fw-node-color" type="color" value="${escapeHtml(node.color)}"></label></div>`;
   const update = (key, value) => {
     node[key] = value;
+    if (["label", "body", "kind"].includes(key)) fitFrameworkNode(node);
     renderFrameworkSvg(viewRoot.querySelector("#framework-svg"));
     viewRoot.querySelector("#framework-object-count").textContent =
       `${state.frameworkBoard.diagram.nodes.length} shapes · ${state.frameworkBoard.diagram.edges.length} connections`;
@@ -1332,62 +1437,160 @@ function renderFrameworkInspector() {
   root.querySelector("#fw-node-color").addEventListener("input", (event) => update("color", event.target.value));
 }
 
-async function insertFramework(framework) {
+async function syncPendingFrameworkDrafts() {
+  const projectId = state.project?.id;
   const documentRecord = currentDocument();
-  if (!documentRecord) return notify("Create a manuscript before inserting a framework.", true);
+  const drafts = state.pendingFrameworkDrafts.filter((draft) => draft.projectId === projectId);
+  if (!drafts.length) return;
+  if (!documentRecord) throw new Error("No manuscript document is available to receive the framework write-up.");
   const sections = documentSections().map((section) => ({ ...section }));
-  sections.push({
-    id: `section-${sections.length + 1}`,
-    title: framework.framework_type === "theoretical" ? "Theoretical Framework" : "Conceptual Framework",
-    content: `<p>${escapeHtml(framework.manuscript_section).replace(/\n/g, "<br>")}</p>`,
-    level: 1,
-  });
-  try {
-    const result = await api(`/api/documents/${encodeURIComponent(documentRecord.id)}/autosave`, {
-      method: "PUT",
-      body: jsonBody({ content: { sections }, version: documentRecord.version }),
+  for (const draft of drafts) {
+    sections.push({
+      id: `section-${sections.length + 1}`,
+      title: draft.framework_type === "theoretical" ? "Theoretical Framework" : "Conceptual Framework",
+      content: `<p>${escapeHtml(draft.manuscript_section).replace(/\n/g, "<br>")}</p>`,
+      level: 1,
     });
-    documentRecord.version = result.version;
-    documentRecord.content = { sections };
-    await renderView("builder");
-    notify("Framework draft added to the manuscript; review it before use.");
-  } catch (error) {
-    notify(error.message, true);
   }
+  const result = await api(`/api/documents/${encodeURIComponent(documentRecord.id)}/autosave`, {
+    method: "PUT",
+    body: jsonBody({ content: { sections }, version: documentRecord.version }),
+  });
+  documentRecord.version = result.version;
+  documentRecord.content = { sections };
+  const syncedDrafts = new Set(drafts);
+  state.pendingFrameworkDrafts = state.pendingFrameworkDrafts.filter((draft) => !syncedDrafts.has(draft));
+  notify(`${drafts.length} framework write-up${drafts.length === 1 ? "" : "s"} added as new manuscript section${drafts.length === 1 ? "" : "s"}.`);
 }
 
 async function deleteProject(projectId) {
-  if (!confirm("Delete this project, its sources, documents, and uploaded files? This cannot be undone.")) return;
+  if (!confirm("Delete this manuscript, its sources, documents, frameworks, and uploaded files? This cannot be undone.")) return;
   try {
     await api(`/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" });
     if (state.project?.id === projectId) localStorage.removeItem("research-os-project");
     await loadProjects();
     await renderView(state.projects.length ? "projects" : "dashboard");
-    notify("Project deleted.");
+    notify("Manuscript deleted.");
   } catch (error) {
     notify(error.message, true);
   }
 }
 
+function renderGrammarIssues(text, issues) {
+  const validIssues = (Array.isArray(issues) ? issues : [])
+    .filter((issue) => issue && typeof issue.original === "string" && issue.original.length);
+  const ranges = [];
+  let searchFrom = 0;
+  for (const issue of validIssues) {
+    let start = text.indexOf(issue.original, searchFrom);
+    if (start < 0) start = text.indexOf(issue.original);
+    if (start < 0) continue;
+    ranges.push({ start, end: start + issue.original.length });
+    searchFrom = start + issue.original.length;
+  }
+  ranges.sort((left, right) => left.start - right.start);
+  let cursor = 0;
+  let highlighted = "";
+  for (const range of ranges) {
+    if (range.start < cursor) continue;
+    highlighted += `${escapeHtml(text.slice(cursor, range.start))}<mark>${escapeHtml(text.slice(range.start, range.end))}</mark>`;
+    cursor = range.end;
+  }
+  highlighted += escapeHtml(text.slice(cursor));
+  const cards = validIssues.length
+    ? validIssues.map((issue) => `<li><strong>${escapeHtml(issue.category || "Writing issue")}</strong>
+        <p><del>${escapeHtml(issue.original)}</del> <span aria-hidden="true">→</span>
+        <ins>${escapeHtml(issue.suggestion || "Review this passage")}</ins></p>
+        <p class="muted">${escapeHtml(issue.explanation || "")}</p></li>`).join("")
+    : "<li>No clear issues were identified.</li>";
+  return `<h4 class="writing-document-subheading">Marked-up draft</h4>
+    <p class="writing-highlight-preview">${highlighted || '<span class="muted">No text to display.</span>'}</p>
+    <h4 class="writing-document-subheading">Suggested edits</h4>
+    <ol class="writing-issue-list">${cards}</ol>`;
+}
+
+function writingDocumentPage(title, content) {
+  return `<article class="writing-document-page" aria-label="${escapeHtml(title)}">
+    <h3 class="writing-document-title">${escapeHtml(title)}</h3>
+    <div class="writing-document-content">${content}</div>
+  </article>`;
+}
+
+function writingDocumentParagraphs(text) {
+  const paragraphs = String(text || "").split(/\r?\n/).filter((paragraph) => paragraph.trim());
+  return paragraphs.length
+    ? paragraphs.map((paragraph) => `<p class="writing-document-text">${escapeHtml(paragraph)}</p>`).join("")
+    : '<p class="writing-document-text"></p>';
+}
+
+function renderWritingResult(action, result, inputText) {
+  let title;
+  let content;
+  let actions = "";
+  if (action === "grammar") {
+    title = "Grammar and spelling review";
+    content = renderGrammarIssues(inputText, result.issues);
+  } else if (action === "correct") {
+    const changes = (result.changes || []).map((change) => `<li><del>${escapeHtml(change.original || "")}</del>
+      <span aria-hidden="true">→</span> <ins>${escapeHtml(change.corrected || "")}</ins>
+      <p class="muted">${escapeHtml(change.explanation || "")}</p></li>`).join("");
+    title = "Suggested correction";
+    content = `${writingDocumentParagraphs(result.corrected)}
+      <p class="muted">Suggestions only; your original text has not been changed.</p>
+      ${changes ? `<h4 class="writing-document-subheading">Changes</h4><ol class="writing-issue-list">${changes}</ol>` : ""}`;
+  } else if (action === "refine") {
+    title = "Refined draft";
+    content = `${writingDocumentParagraphs(result.rewritten)}
+      ${(result.notes || []).length ? `<h4 class="writing-document-subheading">Notes</h4><ul>${result.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : ""}`;
+    actions = `<div class="writing-result-actions"><button class="button primary" type="button" data-apply-writing-text="${escapeHtml(result.rewritten || "")}">Apply rewrite to draft</button></div>`;
+  } else if (action === "summary") {
+    title = "Summary of the full text";
+    content = `${writingDocumentParagraphs(result.summary)}
+      ${(result.keyPoints || []).length ? `<h4 class="writing-document-subheading">Key points</h4><ul>${result.keyPoints.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>` : ""}`;
+  } else {
+    title = "Writing pattern analysis";
+    content = `<p><strong>${escapeHtml(result.label || "Pattern assessment")}</strong>${Number.isFinite(result.likelihood) ? ` · ${Math.round(result.likelihood)}% estimated likelihood` : ""}</p>
+      <p class="muted">This estimate is probabilistic and is not proof of authorship.</p>
+      ${(result.patterns || []).length ? `<h4 class="writing-document-subheading">Patterns</h4><ul>${result.patterns.map((pattern) => `<li>${escapeHtml(pattern)}</li>`).join("")}</ul>` : ""}
+      ${(result.sentences || []).length ? `<h4 class="writing-document-subheading">Passages to review</h4><ul>${result.sentences.map((item) => `<li><strong>${escapeHtml(item.text || "")}</strong> — ${escapeHtml((item.reasons || []).join("; "))}</li>`).join("")}</ul>` : ""}
+      ${(result.issues || []).length ? `<h4 class="writing-document-subheading">Possible grammar issues</h4>${renderGrammarIssues(inputText, result.issues)}` : ""}`;
+  }
+  return `<div class="writing-result-layout">${writingDocumentPage(title, content)}${actions}</div>`;
+}
+
 function bindWriting() {
+  const input = viewRoot.querySelector("#writing-input");
+  const resizeInput = () => {
+    input.style.height = "auto";
+    input.style.height = `${Math.max(input.scrollHeight, 860)}px`;
+  };
+  input.addEventListener("input", resizeInput);
+  resizeInput();
   viewRoot.querySelectorAll("[data-writing-action]").forEach((button) => button.addEventListener("click", async () => {
-    const text = document.querySelector("#writing-input").value;
-    const resultElement = document.querySelector("#writing-result");
+    const fullText = input.value;
     const action = button.dataset.writingAction;
     const endpoints = { grammar: "grammar", correct: "correct", refine: "refine", summary: "summarize", analysis: "ai-analysis" };
+    const hasSelection = input.selectionStart !== input.selectionEnd;
+    const selection = hasSelection ? fullText.slice(input.selectionStart, input.selectionEnd) : "";
+    const text = action === "correct" && selection ? selection : fullText;
+    const resultElement = viewRoot.querySelector("#writing-result");
     const payload = { text };
     if (action === "refine") payload.style = document.querySelector("#writing-style").value;
     if (action === "summary") payload.length = document.querySelector("#summary-length").value;
     button.disabled = true;
-    resultElement.textContent = "Analyzing…";
+    resultElement.innerHTML = `<p class="writing-feedback" role="status">${action === "summary" ? "Summarizing the full text…" : "Analyzing…"}</p>`;
     try {
       const result = await api(`/api/writing/${endpoints[action]}`, { method: "POST", body: jsonBody(payload) });
-      resultElement.textContent = JSON.stringify(result, null, 2);
-      if (action === "correct" && result.corrected) resultElement.textContent = `Suggested correction:\n\n${result.corrected}\n\nChanges:\n${JSON.stringify(result.changes || [], null, 2)}`;
-      if (action === "refine" && result.rewritten) resultElement.textContent = `Suggested rewrite:\n\n${result.rewritten}\n\nNotes:\n${(result.notes || []).join("\n")}`;
-      if (action === "summary" && result.summary) resultElement.textContent = `${result.summary}\n\nKey points:\n${(result.keyPoints || []).join("\n")}`;
+      resultElement.innerHTML = renderWritingResult(action, result, text);
+      const applyButton = resultElement.querySelector("[data-apply-writing-text]");
+      if (applyButton) applyButton.addEventListener("click", () => {
+        input.value = applyButton.dataset.applyWritingText;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.focus();
+        notify("Refined text applied. Review it before using it.");
+      });
     } catch (error) {
-      resultElement.textContent = error.message;
+      resultElement.innerHTML = `<p class="writing-feedback-error" role="alert">${escapeHtml(error.message)}</p>`;
     } finally {
       button.disabled = false;
     }
@@ -1536,7 +1739,7 @@ function bindStatistics() {
       const previewRows = table.rows.slice(0, 5).map((row) =>
         `<tr>${row.map((cell) => `<td>${escapeHtml(cell ?? "")}</td>`).join("")}</tr>`
       ).join("");
-      preview.innerHTML = `<p>${table.row_count.toLocaleString()} rows · ${table.headers.length} columns · Sheet: ${escapeHtml(table.sheet_name)}</p><div style="overflow:auto"><table class="data-table"><thead><tr>${headings}</tr></thead><tbody>${previewRows}</tbody></table></div>${table.row_count > 5 ? "<p>Preview shows the first 5 data rows.</p>" : ""}`;
+      preview.innerHTML = `<p>${table.row_count.toLocaleString()} rows · ${table.headers.length} columns · Sheet: ${escapeHtml(table.sheet_name)}</p><div class="table-scroll"><table class="data-table"><thead><tr>${headings}</tr></thead><tbody>${previewRows}</tbody></table></div>${table.row_count > 5 ? "<p>Preview shows the first 5 data rows.</p>" : ""}`;
       preview.hidden = false;
       source.querySelector('option[value="spreadsheet"]').disabled = false;
       source.value = "spreadsheet";
@@ -1697,7 +1900,7 @@ function formatStatResult(result) {
   const limitations = (result.limitations || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   const hypotheses = result.hypotheses ? `<h3>Hypotheses (alpha = ${escapeHtml(result.alpha)})</h3><p><strong>H₀:</strong> ${escapeHtml(result.hypotheses.null)}<br><strong>H₁:</strong> ${escapeHtml(result.hypotheses.alternative)}</p>` : "";
   return `<div class="panel">${hypotheses}<h3>Result</h3><div class="result-box">${escapeHtml(JSON.stringify(Object.fromEntries(Object.entries(values).filter(([key]) => key !== "steps")), null, 2))}</div>
-    <h3 style="margin-top:16px">Calculation steps</h3><ol>${steps}</ol>
+    <h3 class="calculation-steps-heading">Calculation steps</h3><ol>${steps}</ol>
     ${assumptions ? `<h3>Assumptions to review</h3><ul>${assumptions}</ul>` : ""}
     ${limitations ? `<h3>Limitations</h3><ul>${limitations}</ul>` : ""}</div>`;
 }
@@ -1714,6 +1917,7 @@ function bindBuilder() {
   };
   let hasUnsavedChanges = false;
   let editSequence = 0;
+  viewRoot.querySelector("#delete-current-manuscript")?.addEventListener("click", () => deleteProject(projectId));
   const updateWordCount = () => {
     const counter = viewRoot.querySelector("#manuscript-word-count");
     if (!counter) return;
@@ -1806,7 +2010,10 @@ function bindBuilder() {
     editor.addEventListener("focus", () => { state.activeEditor = editor; });
   });
   container.addEventListener("change", (event) => {
-    if (event.target.matches(".section-level")) scheduleSave();
+    if (event.target.matches(".section-level")) {
+      event.target.closest(".section-editor").dataset.headingLevel = event.target.value;
+      scheduleSave();
+    }
   });
   const restoreSelection = () => {
     if (!state.activeEditor || !container.contains(state.activeEditor) || !state.savedSelection) return;
@@ -1871,21 +2078,45 @@ function bindBuilder() {
   });
   viewRoot.querySelector("[data-insert-table]").addEventListener("mousedown", (event) => event.preventDefault());
   viewRoot.querySelector("[data-insert-table]").addEventListener("click", () => {
-    const rowCount = prompt("Number of rows (1-10):", "3");
-    if (rowCount === null) return;
-    const columnCount = prompt("Number of columns (1-10):", "3");
-    if (columnCount === null) return;
-    const rows = Number(rowCount);
-    const columns = Number(columnCount);
+    if (!state.activeEditor || !container.contains(state.activeEditor)) {
+      state.activeEditor = container.querySelector(".section-content[contenteditable=true]");
+    }
+    const selection = window.getSelection();
+    if (selection?.rangeCount && state.activeEditor?.contains(selection.anchorNode)) {
+      state.savedSelection = selection.getRangeAt(0).cloneRange();
+    } else if (state.activeEditor) {
+      const range = document.createRange();
+      range.selectNodeContents(state.activeEditor);
+      range.collapse(false);
+      state.savedSelection = range;
+    }
+    const tableDialog = viewRoot.querySelector("#table-insert-dialog");
+    tableDialog.hidden = false;
+    tableDialog.querySelector('[name="rows"]').focus();
+  });
+  const tableDialog = viewRoot.querySelector("#table-insert-dialog");
+  const tableForm = viewRoot.querySelector("#table-insert-form");
+  tableForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const rows = Number(tableForm.elements.rows.value);
+    const columns = Number(tableForm.elements.columns.value);
     if (!Number.isInteger(rows) || !Number.isInteger(columns) || rows < 1 || rows > 10 || columns < 1 || columns > 10) {
       notify("Table dimensions must be whole numbers from 1 to 10.", true);
       return;
     }
-    const tableRows = Array.from({ length: rows }, () =>
+    const headerCells = Array.from({ length: columns }, (_, index) =>
+      `<th scope="col">Column ${index + 1}</th>`).join("");
+    const tableRows = Array.from({ length: Math.max(0, rows - 1) }, () =>
       `<tr>${Array.from({ length: columns }, () => "<td><br></td>").join("")}</tr>`).join("");
     restoreSelection();
-    document.execCommand("insertHTML", false, `<table><tbody>${tableRows}</tbody></table><p><br></p>`);
+    document.execCommand("insertHTML", false, `<table><thead><tr>${headerCells}</tr></thead><tbody>${tableRows}</tbody></table><p><br></p>`);
+    tableDialog.hidden = true;
     notifyEditorInput();
+    state.activeEditor?.focus({ preventScroll: true });
+  });
+  viewRoot.querySelector("#cancel-table-insert").addEventListener("click", () => {
+    tableDialog.hidden = true;
+    restoreSelection();
   });
   viewRoot.querySelector("[data-insert-image]").addEventListener("change", (event) => {
     const file = event.target.files[0];
@@ -1912,6 +2143,7 @@ function bindBuilder() {
     const section = document.createElement("details");
     section.className = "section-editor";
     section.open = true;
+    section.dataset.headingLevel = "1";
     section.innerHTML = `<summary><span class="section-title">New section</span></summary><div class="section-meta"><label>Section heading<input class="section-heading-input" maxlength="240" value="New section"></label><label>Style<select class="section-level" aria-label="Heading level"><option value="1">Heading 1</option><option value="2">Heading 2</option><option value="3">Heading 3</option></select></label></div><div class="section-content editor" contenteditable="true" role="textbox" aria-label="New section content" aria-multiline="true" spellcheck="true"><p></p></div><div class="section-actions"><button class="button small danger remove-section" type="button">Remove section</button></div>`;
     container.append(section);
     refreshOutline();
