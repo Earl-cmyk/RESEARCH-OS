@@ -26,7 +26,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import quote, unquote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 import bleach
@@ -1389,6 +1389,45 @@ def fetch_crossref_doi(doi: str) -> dict[str, Any] | None:
     return message
 
 
+def citation_source_from_crossref(record: dict[str, Any], fallback_doi: str = "") -> dict[str, Any]:
+    date_parts = (
+        record.get("published-print", {}).get("date-parts")
+        or record.get("published-online", {}).get("date-parts")
+        or record.get("issued", {}).get("date-parts")
+        or [[]]
+    )
+    date = date_parts[0] if date_parts else []
+    crossref_type = record.get("type", "")
+    source_type = {
+        "journal-article": "journal_article",
+        "book": "book",
+        "book-chapter": "book_chapter",
+        "book-part": "book_chapter",
+        "posted-content": "webpage",
+        "newspaper-article": "newspaper_article",
+        "report": "report",
+        "dissertation": "dissertation",
+        "component": "webpage",
+    }.get(crossref_type, "journal_article" if record.get("container-title") else "webpage")
+    return {
+        "source_type": source_type,
+        "title": (record.get("title") or [""])[0],
+        "authors": [crossref_author(author) for author in record.get("author", [])],
+        "editors": [crossref_author(editor) for editor in record.get("editor", [])],
+        "publication_year": date[0] if date and date[0] else None,
+        "month": date[1] if len(date) > 1 else None,
+        "day": date[2] if len(date) > 2 else None,
+        "journal": (record.get("container-title") or [""])[0],
+        "book_title": (record.get("container-title") or [""])[0] if source_type == "book_chapter" else "",
+        "publisher": record.get("publisher", ""),
+        "volume": record.get("volume", ""),
+        "issue": record.get("issue", ""),
+        "pages": record.get("page", ""),
+        "doi": record.get("DOI", fallback_doi),
+        "source_url": record.get("URL", doi_url(fallback_doi) if fallback_doi else ""),
+    }
+
+
 @app.delete("/api/projects/<project_id>/sources/<source_id>")
 @require_write_auth
 def delete_source(project_id: str, source_id: str):
@@ -1710,44 +1749,45 @@ def lookup_citation_doi():
     record = fetch_crossref_doi(doi)
     if record is None:
         return api_error("No Crossref record was found for this DOI.", 404, "citation_doi_not_found")
-    date_parts = (
-        record.get("published-print", {}).get("date-parts")
-        or record.get("published-online", {}).get("date-parts")
-        or record.get("issued", {}).get("date-parts")
-        or [[]]
-    )
-    date = date_parts[0] if date_parts else []
-    crossref_type = record.get("type", "")
-    source_type = {
-        "journal-article": "journal_article",
-        "book": "book",
-        "book-chapter": "book_chapter",
-        "book-part": "book_chapter",
-        "posted-content": "webpage",
-        "report": "report",
-        "dissertation": "dissertation",
-        "component": "webpage",
-    }.get(crossref_type, "journal_article" if record.get("container-title") else "webpage")
-    return jsonify({
-        "source": {
-            "source_type": source_type,
-            "title": (record.get("title") or [""])[0],
-            "authors": [crossref_author(author) for author in record.get("author", [])],
-            "editors": [crossref_author(editor) for editor in record.get("editor", [])],
-            "publication_year": date[0] if date and date[0] else None,
-            "month": date[1] if len(date) > 1 else None,
-            "day": date[2] if len(date) > 2 else None,
-            "journal": (record.get("container-title") or [""])[0],
-            "book_title": (record.get("container-title") or [""])[0] if source_type == "book_chapter" else "",
-            "publisher": record.get("publisher", ""),
-            "volume": record.get("volume", ""),
-            "issue": record.get("issue", ""),
-            "pages": record.get("page", ""),
-            "doi": record.get("DOI", doi),
-            "source_url": record.get("URL", doi_url(doi)),
-        },
-        "provider": "Crossref",
+    return jsonify({"source": citation_source_from_crossref(record, doi), "provider": "Crossref"})
+
+
+@app.get("/api/citations/lookup-url")
+def lookup_citation_url():
+    source_url = clean_http_url(request.args.get("url", ""), "Source URL")
+    if not source_url:
+        raise ValueError("Source URL is required.")
+    parsed_url = urlsplit(source_url)
+    doi_match = re.search(r"(10\.\d{4,9}/[^/?#]+)", unquote(parsed_url.path), re.IGNORECASE)
+    if doi_match:
+        doi = doi_match.group(1).rstrip(".,;)")
+        record = fetch_crossref_doi(doi)
+        if record is None:
+            return api_error("No Crossref record was found for that DOI.", 404, "citation_doi_not_found")
+        return jsonify({"source": citation_source_from_crossref(record, doi), "provider": "Crossref"})
+
+    contact = os.environ.get("CROSSREF_CONTACT", "").strip()
+    user_agent = "ResearchOS/1.0" + (f" (mailto:{contact})" if contact else "")
+    query_url = "https://api.crossref.org/works?" + urlencode({
+        "query.bibliographic": source_url,
+        "rows": 5,
+        "select": "DOI,title,author,published-print,published-online,issued,container-title,URL,type,publisher,volume,issue,page",
     })
+    try:
+        with urlopen(Request(query_url, headers={"User-Agent": user_agent}), timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
+        logger.warning("Crossref URL citation lookup failed: %s", error)
+        return api_error("Citation lookup is temporarily unavailable. Try again shortly.", 502, "citation_provider_unavailable")
+    records = payload.get("message", {}).get("items", [])
+    matches = [
+        citation_source_from_crossref(record)
+        for record in records
+        if record.get("title")
+    ]
+    if not matches:
+        return api_error("No matching Crossref record was found. Try manual entry instead.", 404, "citation_url_not_found")
+    return jsonify({"matches": matches, "provider": "Crossref"})
 
 
 @app.get("/api/projects/<project_id>/references")

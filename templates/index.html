@@ -44,28 +44,31 @@
 
     <div id="app-shell" class="app-shell" hidden>
       <aside class="sidebar">
-        <a class="brand" href="#" data-view="dashboard" aria-label="Research OS dashboard">
-          <span class="brand-mark small">R</span>
-          <span><strong>Research OS</strong><small>Research workspace</small></span>
-        </a>
+        <div class="sidebar-heading">
+          <a class="brand" href="#" data-view="dashboard" aria-label="Research OS dashboard">
+            <span class="brand-mark small">R</span>
+            <span><strong>Research OS</strong><small>Research workspace</small></span>
+          </a>
+          <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">‹</button>
+        </div>
         <div class="project-switcher">
           <label for="project-select">CURRENT MANUSCRIPT</label>
           <select id="project-select" aria-label="Current research manuscript"></select>
         </div>
         <nav class="nav-list" aria-label="Main navigation">
-          <button class="nav-item manuscript-nav-item" data-view="builder"><span>✎</span> Manuscript Editor</button>
-          <button class="nav-item active" data-view="dashboard"><span>◫</span> Dashboard</button>
-          <button class="nav-item" data-view="projects"><span>▤</span> My Research</button>
-          <button class="nav-item" data-view="writing"><span>✍</span> Writing Lab</button>
-          <button class="nav-item" data-view="framework"><span>◇</span> Frameworkshop</button>
-          <button class="nav-item" data-view="literature"><span>⌕</span> Literature Review</button>
-          <button class="nav-item" data-view="statistics"><span>∑</span> Statistical Lab</button>
-          <button class="nav-item" data-view="appendices"><span>↥</span> Appendices</button>
-          <button class="nav-item" data-view="references"><span>❝</span> References</button>
+          <button class="nav-item manuscript-nav-item" data-view="builder"><span>✎</span><span class="nav-label">Manuscript Editor</span></button>
+          <button class="nav-item active" data-view="dashboard"><span>◫</span><span class="nav-label">Dashboard</span></button>
+          <button class="nav-item" data-view="projects"><span>▤</span><span class="nav-label">My Research</span></button>
+          <button class="nav-item" data-view="writing"><span>✍</span><span class="nav-label">Writing Lab</span></button>
+          <button class="nav-item" data-view="framework"><span>◇</span><span class="nav-label">Frameworkshop</span></button>
+          <button class="nav-item" data-view="literature"><span>⌕</span><span class="nav-label">Literature Review</span></button>
+          <button class="nav-item" data-view="statistics"><span>∑</span><span class="nav-label">Statistical Lab</span></button>
+          <button class="nav-item" data-view="appendices"><span>↥</span><span class="nav-label">Appendices</span></button>
+          <button class="nav-item" data-view="references"><span>❝</span><span class="nav-label">References</span></button>
         </nav>
         <div class="sidebar-bottom">
           <p class="fine-print">AI suggestions are drafts for researcher review. Verify sources, calculations, and final formatting.</p>
-          <button id="sign-out" class="nav-item quiet"><span>↪</span> Sign out</button>
+          <button id="sign-out" class="nav-item quiet"><span>↪</span><span class="nav-label">Sign out</span></button>
         </div>
       </aside>
 

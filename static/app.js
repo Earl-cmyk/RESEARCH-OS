@@ -258,6 +258,16 @@ async function renderView(view) {
   bindView(view);
 }
 
+function setSidebarCollapsed(collapsed) {
+  const toggle = document.querySelector("#sidebar-toggle");
+  appShell.classList.toggle("sidebar-collapsed", collapsed);
+  toggle.setAttribute("aria-expanded", String(!collapsed));
+  toggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+  toggle.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+  toggle.textContent = collapsed ? "›" : "‹";
+  localStorage.setItem("research-os-sidebar-collapsed", String(collapsed));
+}
+
 function renderNoProject() {
   return `<div class="welcome"><div><p class="eyebrow">START HERE</p><h2>Make room for your next research idea.</h2><p>Create a manuscript to organize your writing, literature, and research materials.</p></div></div>
     <div class="panel" style="margin-top:16px"><h2>Create your first manuscript</h2>${projectForm()}</div>`;
@@ -528,7 +538,8 @@ function renderFramework() {
 }
 
 function renderLiterature() {
-  return `<div class="panel"><h2>Search scholarly literature</h2><p>Search Crossref's bibliographic records. Metadata is returned by the source provider; abstracts may be unavailable.</p>
+  return `${citationGenerator()}
+    <div class="panel"><h2>Search scholarly literature</h2><p>Search Crossref's bibliographic records. Metadata is returned by the source provider; abstracts may be unavailable.</p>
     <form id="literature-form" class="toolbar"><input name="q" required maxlength="500" placeholder="Topic, title, keyword, or author"><button class="button primary" type="submit">Search Crossref</button></form>
     <h3 style="margin-top:20px">Import references</h3><p>Import RIS or BibTeX exports from a reference manager. Imported metadata is unverified until checked against a provider record.</p>
     <form id="reference-import-form" class="toolbar"><label class="file-picker-label">Reference file${filePicker("file", ".ris,.bib,.bibtex", true)}</label><button class="button" type="submit">Import references</button></form>
@@ -538,6 +549,55 @@ function renderLiterature() {
     <p class="muted">AI-generated synthesis is a researcher-reviewed draft based only on saved source metadata and available abstracts.</p>
     <div id="literature-synthesis" class="result-list"></div>
     <div class="result-list">${state.sources.length ? state.sources.map(sourceCard).join("") : '<div class="empty-state">Saved project sources will appear here.</div>'}</div>`;
+}
+
+function citationGenerator() {
+  return `<div class="panel citation-generator"><div class="section-heading"><div><p class="eyebrow">APA 7TH EDITION</p><h2>APA citation generator</h2><p class="muted">Create a reference and in-text citation from a source URL or enter the details yourself. Check the result against the original source.</p></div></div>
+    <div class="citation-mode-tabs" role="tablist" aria-label="Citation entry method">
+      <button class="button active" type="button" role="tab" aria-selected="true" aria-controls="citation-url-panel" data-citation-mode="link">Use a URL</button>
+      <button class="button" type="button" role="tab" aria-selected="false" aria-controls="manual-citation-panel" data-citation-mode="manual">Enter manually</button>
+    </div>
+    <section id="citation-url-panel" class="citation-entry-panel">
+      <p class="muted">Paste a DOI or article URL. Crossref will look for matching publication details; you can review a match before using it.</p>
+      <form id="url-citation-form" class="doi-lookup-row">
+        <label>Article or source URL<input name="url" type="url" maxlength="2000" required placeholder="https://doi.org/10…"></label>
+        <button class="button primary" type="submit">Find citation details</button>
+      </form>
+      <p id="url-citation-status" class="muted" aria-live="polite"></p>
+      <div id="url-citation-matches" class="result-list"></div>
+    </section>
+    <section id="manual-citation-panel" class="citation-entry-panel" hidden>
+      <form id="citation-form" class="form-grid">
+        <label>Source type<select name="source_type" id="citation-source-type">
+          <option value="journal_article">Journal article</option><option value="book">Book</option>
+          <option value="webpage">Webpage</option><option value="report">Report</option>
+          <option value="book_chapter">Chapter in an edited book</option><option value="dissertation">Thesis or dissertation</option>
+          <option value="newspaper_article">Newspaper article</option></select></label>
+        <label>Citation form<select name="style"><option value="parenthetical">Parenthetical (Smith, 2024)</option><option value="narrative">Narrative Smith (2024)</option></select></label>
+        <label class="full">Author(s)<textarea name="author_names" rows="3" placeholder="One author per line:&#10;Smith, John A.&#10;Jones, Taylor"></textarea><small>Enter each person as Family name, Given and middle names. Use one name per line.</small></label>
+        <label class="full">Group or organization author<input name="group_author" maxlength="240" placeholder="Use this instead of person authors, if applicable"></label>
+        <label class="full">Title<input name="title" maxlength="1000" required placeholder="Title of the article, book, webpage, or report"></label>
+        <label>Publication year<input name="publication_year" type="number" min="1" max="3000" placeholder="2024"></label>
+        <label data-citation-field="journal">Journal or newspaper name<input name="journal" maxlength="500"></label>
+        <label data-citation-field="volume">Volume<input name="volume" maxlength="100"></label>
+        <label data-citation-field="issue">Issue<input name="issue" maxlength="100"></label>
+        <label data-citation-field="pages">Page range<input name="pages" maxlength="100" placeholder="123–145"></label>
+        <label data-citation-field="publisher">Publisher<input name="publisher" maxlength="500"></label>
+        <label data-citation-field="edition">Edition number<input name="edition" type="number" min="1" max="99" placeholder="2"></label>
+        <label class="full" data-citation-field="book_title">Edited book title<input name="book_title" maxlength="1000"></label>
+        <label class="full" data-citation-field="editors">Editor(s)<textarea name="editor_names" rows="2" placeholder="One per line: Family name, Given names"></textarea></label>
+        <label data-citation-field="website">Website name<input name="website" maxlength="500"></label>
+        <label data-citation-field="report_number">Report number<input name="report_number" maxlength="100"></label>
+        <label data-citation-field="institution">Awarding institution<input name="institution" maxlength="500"></label>
+        <label data-citation-field="degree_type">Degree<select name="degree_type"><option>Doctoral dissertation</option><option>Master's thesis</option></select></label>
+        <label data-citation-field="month">Publication month<input name="month" maxlength="20" placeholder="March"></label>
+        <label data-citation-field="day">Publication day<input name="day" type="number" min="1" max="31"></label>
+        <div class="full doi-lookup-row"><label>DOI<input name="doi" maxlength="300" placeholder="10.xxxx/xxxxx or https://doi.org/…"></label><button class="button" type="button" id="lookup-citation-doi">Find DOI details</button><span id="citation-lookup-status" class="muted" aria-live="polite"></span></div>
+        <label class="full" data-citation-field="source_url">Source URL<input name="source_url" maxlength="2000" type="url" placeholder="https://…"></label>
+        <div class="full"><button class="button primary" type="submit">Create APA 7 citation</button></div>
+      </form>
+    </section>
+    <div id="citation-output" class="citation-output" aria-live="polite"></div></div>`;
 }
 
 function sourceCard(source, saveButton = false) {
@@ -687,36 +747,7 @@ function renderAppendices() {
 }
 
 function renderReferences() {
-  return `<div class="panel citation-generator"><div class="section-heading"><div><p class="eyebrow">APA 7TH EDITION</p><h2>Reference and citation generator</h2><p class="muted">Choose a source type, enter its details, and create a reference-list entry plus parenthetical or narrative in-text citation. Check the finished citation against the original source.</p></div></div>
-    <form id="citation-form" class="form-grid">
-      <label>Source type<select name="source_type" id="citation-source-type">
-        <option value="journal_article">Journal article</option><option value="book">Book</option>
-        <option value="webpage">Webpage</option><option value="report">Report</option>
-        <option value="book_chapter">Chapter in an edited book</option><option value="dissertation">Thesis or dissertation</option>
-        <option value="newspaper_article">Newspaper article</option></select></label>
-      <label>Citation form<select name="style"><option value="parenthetical">Parenthetical (Smith, 2024)</option><option value="narrative">Narrative Smith (2024)</option></select></label>
-      <label class="full">Author(s)<textarea name="author_names" rows="3" placeholder="One author per line:&#10;Smith, John A.&#10;Jones, Taylor"></textarea><small>Enter each person as Family name, Given and middle names. Use one name per line.</small></label>
-      <label class="full">Group or organization author<input name="group_author" maxlength="240" placeholder="Use this instead of person authors, if applicable"></label>
-      <label class="full">Title<input name="title" maxlength="1000" required placeholder="Title of the article, book, webpage, or report"></label>
-      <label>Publication year<input name="publication_year" type="number" min="1" max="3000" placeholder="2024"></label>
-      <label data-citation-field="journal">Journal or newspaper name<input name="journal" maxlength="500"></label>
-      <label data-citation-field="volume">Volume<input name="volume" maxlength="100"></label>
-      <label data-citation-field="issue">Issue<input name="issue" maxlength="100"></label>
-      <label data-citation-field="pages">Page range<input name="pages" maxlength="100" placeholder="123–145"></label>
-      <label data-citation-field="publisher">Publisher<input name="publisher" maxlength="500"></label>
-      <label data-citation-field="edition">Edition number<input name="edition" type="number" min="1" max="99" placeholder="2"></label>
-      <label class="full" data-citation-field="book_title">Edited book title<input name="book_title" maxlength="1000"></label>
-      <label class="full" data-citation-field="editors">Editor(s)<textarea name="editor_names" rows="2" placeholder="One per line: Family name, Given names"></textarea></label>
-      <label data-citation-field="website">Website name<input name="website" maxlength="500"></label>
-      <label data-citation-field="report_number">Report number<input name="report_number" maxlength="100"></label>
-      <label data-citation-field="institution">Awarding institution<input name="institution" maxlength="500"></label>
-      <label data-citation-field="degree_type">Degree<select name="degree_type"><option>Doctoral dissertation</option><option>Master's thesis</option></select></label>
-      <label data-citation-field="month">Publication month<input name="month" maxlength="20" placeholder="March"></label>
-      <label data-citation-field="day">Publication day<input name="day" type="number" min="1" max="31"></label>
-      <div class="full doi-lookup-row"><label>DOI<input name="doi" maxlength="300" placeholder="10.xxxx/xxxxx or https://doi.org/…"></label><button class="button" type="button" id="lookup-citation-doi">Find DOI details</button><span id="citation-lookup-status" class="muted" aria-live="polite"></span></div>
-      <label class="full" data-citation-field="source_url">Source URL<input name="source_url" maxlength="2000" type="url" placeholder="https://…"></label>
-      <div class="full"><button class="button primary" type="submit">Create APA 7 citation</button></div></form>
-    <div id="citation-output" class="citation-output" aria-live="polite"></div></div>
+  return `${citationGenerator()}
     <div class="section-heading"><h2>Project reference list (${state.sources.length})</h2><button class="button small" id="copy-references">Copy references</button></div>
     ${state.sources.length ? `<div class="panel"><ol class="reference-list">${state.sources.map((source) => `<li>${escapeHtml(sourceReference(source))}</li>`).join("")}</ol></div>` : '<div class="empty-state">Save verified sources from Literature Review to build this project’s reference list.</div>'}`;
 }
@@ -1364,6 +1395,7 @@ function bindWriting() {
 }
 
 function bindLiterature() {
+  bindCitationGenerator();
   document.querySelector("#reference-import-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -2049,8 +2081,9 @@ function bindAppendices() {
   }));
 }
 
-function bindReferences() {
+function bindCitationGenerator() {
   const form = document.querySelector("#citation-form");
+  if (!form) return;
   const sourceType = form.querySelector("#citation-source-type");
   const fieldVisibility = {
     journal_article: ["journal", "volume", "issue", "pages"],
@@ -2067,6 +2100,85 @@ function bindReferences() {
       field.hidden = !visibleFields.has(field.dataset.citationField);
     });
   };
+  const setCitationMode = (mode) => {
+    document.querySelector("#citation-url-panel").hidden = mode !== "link";
+    document.querySelector("#manual-citation-panel").hidden = mode !== "manual";
+    document.querySelectorAll("[data-citation-mode]").forEach((button) => {
+      const selected = button.dataset.citationMode === mode;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-selected", String(selected));
+    });
+  };
+  const fillCitationForm = (source, fallbackUrl = "") => {
+    form.reset();
+    sourceType.value = source.source_type || "webpage";
+    for (const name of ["title", "publication_year", "journal", "publisher", "volume", "issue", "pages", "book_title", "doi", "source_url", "group_author", "website", "report_number", "institution", "degree_type"]) {
+      if (source[name] !== null && source[name] !== undefined && form.elements[name]) {
+        form.elements[name].value = source[name];
+      }
+    }
+    if (!source.source_url && fallbackUrl) form.elements.source_url.value = fallbackUrl;
+    if (source.month) form.elements.month.value = new Date(2000, Number(source.month) - 1).toLocaleString(undefined, { month: "long" });
+    if (source.day) form.elements.day.value = source.day;
+    if (Array.isArray(source.authors)) {
+      form.elements.author_names.value = source.authors
+        .map((author) => `${author.lastName || ""}${author.firstName ? `, ${author.firstName}` : ""}`)
+        .join("\n");
+    }
+    if (Array.isArray(source.editors)) {
+      form.elements.editor_names.value = source.editors
+        .map((editor) => `${editor.lastName || ""}${editor.firstName ? `, ${editor.firstName}` : ""}`)
+        .join("\n");
+    }
+    updateCitationFields();
+    setCitationMode("manual");
+  };
+  const urlForm = document.querySelector("#url-citation-form");
+  urlForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const url = new FormData(urlForm).get("url").trim();
+    const button = urlForm.querySelector('button[type="submit"]');
+    const status = document.querySelector("#url-citation-status");
+    const matchesElement = document.querySelector("#url-citation-matches");
+    button.disabled = true;
+    status.textContent = "Looking for source details…";
+    matchesElement.replaceChildren();
+    try {
+      const result = await api(`/api/citations/lookup-url?url=${encodeURIComponent(url)}`);
+      if (result.source) {
+        fillCitationForm(result.source, url);
+        status.textContent = "Details found. Review the citation before using it.";
+        form.requestSubmit();
+        return;
+      }
+      const matches = result.matches || [];
+      if (!matches.length) {
+        status.textContent = "No matching record found. Enter the source details manually.";
+        return;
+      }
+      const useMatch = (source) => {
+        fillCitationForm(source, url);
+        status.textContent = "Details found. Review the citation before using it.";
+        form.requestSubmit();
+      };
+      status.textContent = "Choose the matching publication to create its citation.";
+      matchesElement.innerHTML = matches.map((source, index) => {
+        const authors = (source.authors || []).map((author) => author.lastName).filter(Boolean).join(", ");
+        const description = [authors, source.publication_year, source.journal].filter(Boolean).join(" · ");
+        return `<article class="result-item"><h3>${escapeHtml(source.title)}</h3><p class="result-meta">${escapeHtml(description || "Publication details available")}</p><button class="button small" type="button" data-url-citation-match="${index}">Use this match</button></article>`;
+      }).join("");
+      matchesElement.querySelectorAll("[data-url-citation-match]").forEach((matchButton) => {
+        matchButton.addEventListener("click", () => useMatch(matches[Number(matchButton.dataset.urlCitationMatch)]));
+      });
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.querySelectorAll("[data-citation-mode]").forEach((button) => {
+    button.addEventListener("click", () => setCitationMode(button.dataset.citationMode));
+  });
   sourceType.addEventListener("change", updateCitationFields);
   updateCitationFields();
   document.querySelector("#lookup-citation-doi").addEventListener("click", async () => {
@@ -2081,31 +2193,7 @@ function bindReferences() {
     status.textContent = "Looking up DOI at Crossref…";
     try {
       const result = await api(`/api/citations/lookup?doi=${encodeURIComponent(doi)}`);
-      const source = result.source;
-      sourceType.value = source.source_type;
-      updateCitationFields();
-      const fields = {
-        title: source.title,
-        publication_year: source.publication_year,
-        journal: source.journal,
-        publisher: source.publisher,
-        volume: source.volume,
-        issue: source.issue,
-        pages: source.pages,
-        book_title: source.book_title,
-        doi: source.doi,
-        source_url: source.source_url,
-      };
-      for (const [name, value] of Object.entries(fields)) {
-        if (value !== null && value !== undefined && form.elements[name]) form.elements[name].value = value;
-      }
-      if (Array.isArray(source.authors) && source.authors.length) {
-        form.elements.author_names.value = source.authors
-          .map((author) => `${author.lastName || ""}${author.firstName ? `, ${author.firstName}` : ""}`)
-          .join("\n");
-      }
-      if (source.month) form.elements.month.value = new Date(2000, Number(source.month) - 1).toLocaleString(undefined, { month: "long" });
-      if (source.day) form.elements.day.value = source.day;
+      fillCitationForm(result.source);
       status.textContent = "Crossref details loaded. Review them before generating the citation.";
     } catch (error) {
       status.textContent = error.message;
@@ -2115,7 +2203,7 @@ function bindReferences() {
   });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const values = Object.fromEntries(new FormData(form).entries());
     const parseAuthors = (text) => text.split(/\r?\n|;/).map((line) => line.trim()).filter(Boolean).map((line) => {
       if (!line.includes(",")) {
         const words = line.split(/\s+/);
@@ -2164,10 +2252,9 @@ function bindReferences() {
         if (part.italic) item.textContent = part.text;
         referenceElement.append(item);
       });
-      const warningList = output.querySelector(".citation-warnings");
-      warningList.innerHTML = (result.warnings || []).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("");
-      output.querySelectorAll("[data-copy-citation]").forEach((button) => button.addEventListener("click", async () => {
-        const element = button.dataset.copyCitation === "in-text"
+      output.querySelector(".citation-warnings").innerHTML = (result.warnings || []).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("");
+      output.querySelectorAll("[data-copy-citation]").forEach((copyButton) => copyButton.addEventListener("click", async () => {
+        const element = copyButton.dataset.copyCitation === "in-text"
           ? output.querySelector("#citation-in-text")
           : output.querySelector("#citation-reference");
         try {
@@ -2183,6 +2270,10 @@ function bindReferences() {
       submitButton.disabled = false;
     }
   });
+}
+
+function bindReferences() {
+  bindCitationGenerator();
   document.querySelector("#copy-references").addEventListener("click", async () => {
     if (!state.sources.length) return notify("There are no project references to copy.", true);
     try {
@@ -2214,6 +2305,10 @@ async function bootstrap() {
     event.preventDefault();
     renderView(item.dataset.view);
   }));
+  setSidebarCollapsed(localStorage.getItem("research-os-sidebar-collapsed") === "true");
+  document.querySelector("#sidebar-toggle").addEventListener("click", () => {
+    setSidebarCollapsed(!appShell.classList.contains("sidebar-collapsed"));
+  });
   document.querySelector("#project-select").addEventListener("change", (event) => setProject(event.target.value));
   document.querySelector("#sign-out").addEventListener("click", signOut);
   try {

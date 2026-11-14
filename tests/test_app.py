@@ -753,6 +753,45 @@ class ResearchOsApiTests(unittest.TestCase):
         self.assertEqual(response.get_json()["source"]["publication_year"], 2023)
         self.assertEqual(response.get_json()["source"]["volume"], "8")
 
+    def test_citation_url_lookup_resolves_doi_and_crossref_url_matches(self):
+        doi_record = {
+            "DOI": "10.1000/verified",
+            "title": ["Provider article"],
+            "author": [{"given": "Jane A.", "family": "Scholar"}],
+            "published-print": {"date-parts": [[2023]]},
+            "container-title": ["Verified Journal"],
+            "type": "journal-article",
+            "URL": "https://doi.org/10.1000/verified",
+        }
+        with patch("app.fetch_crossref_doi", return_value=doi_record):
+            doi_response = self.client.get(
+                "/api/citations/lookup-url?url=https%3A%2F%2Fdoi.org%2F10.1000%2Fverified"
+            )
+        self.assertEqual(doi_response.status_code, 200, doi_response.get_json())
+        self.assertEqual(doi_response.get_json()["source"]["title"], "Provider article")
+
+        search_record = {
+            **doi_record,
+            "DOI": "10.1000/search-match",
+            "title": ["Matched article"],
+        }
+        provider_response = io.BytesIO(json.dumps({
+            "message": {"items": [search_record]},
+        }).encode())
+        with patch("app.urlopen", return_value=provider_response) as urlopen:
+            response = self.client.get(
+                "/api/citations/lookup-url?url=https%3A%2F%2Fexample.org%2Farticle"
+            )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()["matches"][0]["title"], "Matched article")
+        self.assertIn("api.crossref.org/works?", urlopen.call_args.args[0].full_url)
+
+    def test_citation_url_lookup_requires_safe_http_url(self):
+        missing = self.client.get("/api/citations/lookup-url")
+        self.assertEqual(missing.status_code, 400)
+        invalid = self.client.get("/api/citations/lookup-url?url=file%3A%2F%2F%2Fetc%2Fpasswd")
+        self.assertEqual(invalid.status_code, 400)
+
     def test_citation_generator_rejects_bad_source_type_and_doi(self):
         bad_type = self.client.post("/api/citations/generate", json={
             "title": "A title",
